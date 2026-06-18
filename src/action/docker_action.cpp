@@ -5,6 +5,13 @@
 
 namespace fs = std::filesystem;
 
+bool docker_action::is_resolved(const stage_desc &sd, runtime &ctx) const
+{
+    (void)sd;
+    (void)ctx;
+    return false;
+}
+
 void docker_action::parse(config_node &cfg, docker_data &d)
 {
     d.recipe = cfg.get_string("recipe");
