@@ -1,0 +1,89 @@
+name: Setup predep build environment
+description: Install premake5, vendor headers, and system dependencies
+
+inputs:
+  target:
+    description: Build target (linux or windows)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        if [ "${{ inputs.target }}" = "windows" ]; then
+          sudo apt-get install -y g++-mingw-w64-x86-64 unzip
+        fi
+        sudo apt-get install -y \
+          build-essential \
+          libcurl4-openssl-dev \
+          libssl-dev \
+          ca-certificates \
+          curl \
+          make
+
+    - name: Cache premake5
+      id: cache-premake
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/premake5
+        key: premake-5.0.0-beta8
+
+    - name: Install premake5
+      if: steps.cache-premake.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -fsSL https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz \
+          | tar xz -C /usr/local/bin/
+        chmod +x /usr/local/bin/premake5
+
+    - name: Cache vendor headers
+      id: cache-vendor
+      uses: actions/cache@v4
+      with:
+        path: vendor
+        key: vendor-${{ hashFiles('predep.toml') }}
+
+    - name: Download vendor headers
+      if: steps.cache-vendor.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p vendor/CLI11
+        curl -fsSL https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz \
+          | tar xz -C /tmp
+        echo "6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e  /tmp/tomlplusplus-3.4.0/toml.hpp" \
+          | sha256sum -c -
+        mv /tmp/tomlplusplus-3.4.0 vendor/tomlpp
+        curl -fsSL -o vendor/CLI11/CLI11.hpp \
+          https://github.com/CLIUtils/CLI11/releases/download/v2.6.2/CLI11.hpp
+
+    - name: Cache mingw curl SDK
+      if: inputs.target == 'windows'
+      id: cache-curl
+      uses: actions/cache@v4
+      with:
+        path: |
+          /usr/x86_64-w64-mingw32/include/curl
+          /usr/x86_64-w64-mingw32/lib/libcurl.a
+          /tmp/curl-dll/libcurl-x64.dll
+        key: mingw-curl-8.20.0
+
+    - name: Install mingw curl SDK
+      if: inputs.target == 'windows' && steps.cache-curl.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -fsSL https://curl.se/windows/dl-8.20.0_5/curl-8.20.0_5-win64-mingw.zip \
+          -o /tmp/curl-mingw.zip
+        echo "d290b4ee475968b04dcb2e0c4f046f2ff25c35c65d3e54259cef7cc6cea069e2  /tmp/curl-mingw.zip" \
+          | sha256sum -c -
+        unzip /tmp/curl-mingw.zip -d /tmp/curl-mingw
+        sudo cp -r /tmp/curl-mingw/curl-8.20.0_5-win64-mingw/include/* \
+          /usr/x86_64-w64-mingw32/include/
+        sudo cp -r /tmp/curl-mingw/curl-8.20.0_5-win64-mingw/lib/*.a \
+          /usr/x86_64-w64-mingw32/lib/
+        mkdir -p /tmp/curl-dll
+        cp /tmp/curl-mingw/curl-8.20.0_5-win64-mingw/bin/libcurl-x64.dll \
+          /tmp/curl-dll/
+        rm -rf /tmp/curl-mingw*

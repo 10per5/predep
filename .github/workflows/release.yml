@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-linux:
+    if: startsWith(github.event.head_commit.message, 'build(v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          target: linux
+
+      - name: Generate build files
+        run: premake5 gmake
+
+      - name: Build
+        run: make -j$(nproc) config=release
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp bin/predep dist/
+          tar -czf predep-linux-x86_64.tar.gz -C dist predep
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: predep-linux
+          path: predep-linux-x86_64.tar.gz
+
+  build-windows:
+    if: startsWith(github.event.head_commit.message, 'build(v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          target: windows
+
+      - name: Generate build files (cross)
+        run: |
+          ln -sf /usr/bin/x86_64-w64-mingw32-strip /usr/local/bin/strip
+          premake5 gmake --os=windows --cc=gcc
+
+      - name: Build (cross)
+        run: |
+          make -j$(nproc) config=release \
+            CC=x86_64-w64-mingw32-gcc \
+            CXX=x86_64-w64-mingw32-g++ \
+            CXXFLAGS="-I/usr/x86_64-w64-mingw32/include" \
+            LDFLAGS="-L/usr/x86_64-w64-mingw32/lib -static-libgcc -static-libstdc++ -Wl,--defsym,fstat64=_fstat64" \
+            LIBS="-lcurl -lssl -lcrypto -lws2_32 -lwldap32 -lcrypt32 -lbcrypt -lz -lzstd -lpsl -lbrotlidec -lbrotlicommon -lnghttp2 -lnghttp3 -lngtcp2 -lngtcp2_crypto_libressl -lssh2"
+
+      - name: Copy DLL
+        run: cp /tmp/curl-dll/libcurl-x64.dll bin/
+
+      - name: Package binaries
+        run: |
+          mkdir -p dist
+          cp bin/predep.exe dist/
+          cp bin/libcurl-x64.dll dist/
+          cd dist && zip -r ../predep-windows-x86_64.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: predep-windows
+          path: predep-windows-x86_64.zip
+
+  release:
+    if: startsWith(github.event.head_commit.message, 'build(v')
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: predep-linux
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: predep-windows
+
+      - name: Extract version from commit message
+        id: version
+        run: |
+          msg="${{ github.event.head_commit.message }}"
+          ver=$(echo "$msg" | sed -n 's/^build(v\([0-9]*\.[0-9]*\.[0-9]*\)):.*/\1/p')
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: |
+            predep-linux-x86_64.tar.gz
+            predep-windows-x86_64.zip
+          generate_release_notes: true

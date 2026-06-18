@@ -1,0 +1,4 @@
+*.make
+Makefile
+bin/
+obj/

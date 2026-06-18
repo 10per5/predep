@@ -1,0 +1,6 @@
+*.make
+Makefile
+bin/
+images/
+docs/
+obj/

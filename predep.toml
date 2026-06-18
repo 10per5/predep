@@ -1,0 +1,52 @@
+# Self-hosting config: build predep with predep
+main = "predep-build"
+
+[[stages]]
+name = "vendor"
+description = "Download vendor dependencies"
+type = "vendor"
+
+[[vendor]]
+name = "tomlpp"
+url = "https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp"
+sha256 = "6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e"
+dest = "root://vendor/"
+create_directory = true
+
+[[vendor]]
+name = "CLI11"
+url = "https://github.com/CLIUtils/CLI11/releases/download/v2.6.2/CLI11.hpp"
+sha256 = "227a16fe5f9f8ada80c3c409492475536f597e7bd83a6c26eacc3c8c149a9295"
+dest = "root://vendor/"
+create_directory = true
+
+[[stages]]
+name = "predep-build"
+description = "Build predep binary (native)"
+type = "run"
+depends = ["vendor"]
+outputs = ["root://bin/predep"]
+commands = [
+    "premake5 gmake && make config=release -j$(nproc) && strip bin/predep",
+]
+
+[platform.windows]
+commands = [
+    "premake5 gmake && msbuild predep.sln /p:Configuration=Release",
+]
+
+[[stages]]
+name = "predep-docker"
+description = "Build predep binary via Docker"
+type = "docker"
+depends = ["vendor"]
+outputs = ["root://bin/predep"]
+
+recipe = "images/linux.Dockerfile"
+target = "/src/predep/bin/predep"
+dest = "root://bin/"
+
+[platform.win32]
+recipe = "images/win32.Dockerfile"
+target = "/src/predep/bin/predep.exe"
+dest = "root://bin/"
