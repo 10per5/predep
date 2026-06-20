@@ -67,7 +67,8 @@ static void merge_root_entries(
     stage_type stype,
     const std::string &root_array_name,
     const std::string &implicit_fetch_type,
-    const std::string &default_dest)
+    const std::string &default_dest,
+    const std::string &fetch_type_filter = "")
 {
     auto arr = root.get_array(root_array_name);
     for (auto &elem : arr)
@@ -78,7 +79,16 @@ static void merge_root_entries(
         for (auto &[_, sd] : stages)
         {
             if (sd.type != stype)
-                continue;
+            {
+                if (!fetch_type_filter.empty() && sd.type == stage_type::fetch)
+                {
+                    auto *dd = dynamic_cast<download_data*>(sd.data.get());
+                    if (!dd || dd->fetch_type != fetch_type_filter)
+                        continue;
+                }
+                else
+                    continue;
+            }
             auto *dd = dynamic_cast<download_data*>(sd.data.get());
             if (!dd)
                 continue;
@@ -242,9 +252,9 @@ static void parse_stages(
     };
     merge_fetch();
 
-    merge_root_entries(stages, root, stage_type::vendor, "vendor", "", "root://vendor/");
-    merge_root_entries(stages, root, stage_type::fetch, "binary", "binary", "cache://bin/");
-    merge_root_entries(stages, root, stage_type::resource, "resource", "", "root://resources/");
+    merge_root_entries(stages, root, stage_type::vendor, "vendor", "", "root://vendor/", "vendor");
+    merge_root_entries(stages, root, stage_type::fetch, "binary", "binary", "cache://bin/", "binary");
+    merge_root_entries(stages, root, stage_type::resource, "resource", "", "root://resources/", "resource");
 }
 
 static bool add_single_toml(
