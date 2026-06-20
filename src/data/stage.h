@@ -181,6 +181,7 @@ struct runtime
     platform_type platform;
     int max_concurrency = 1;
     bool privileged = false;
+    std::string config_sha;
     Logger *logger = nullptr;
     Prompter *prompter = nullptr;
 

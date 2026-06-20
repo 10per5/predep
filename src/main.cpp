@@ -48,6 +48,7 @@ int main(int argc, char **argv)
     ctx.platform = platform::from_string(args.platform_override.empty() ? args.target_os : args.platform_override);
     ctx.max_concurrency = args.jobs;
     ctx.privileged = args.privileged;
+    ctx.config_sha = args.privileged_sha;
     ctx.logger = logger.get();
     ctx.prompter = prompter.get();
 

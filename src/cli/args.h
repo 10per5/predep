@@ -13,6 +13,7 @@ struct parsed_args
     std::string platform_override;
     std::string config_path;
     std::string target_os;
+    std::string privileged_sha;
     std::string command;
 };
 

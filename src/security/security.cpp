@@ -116,6 +116,31 @@ bool security::check_path_safety(
         }
     }
 
+    // When --privileged is used, verify the main config SHA matches
+    if (ctx.privileged)
+    {
+        if (ctx.config_sha.empty())
+        {
+            error = "--privileged requires the SHA256 of the config file.\n"
+                    "  Usage: predep --privileged <sha256> <stage>";
+            return false;
+        }
+        auto &main_cfg = config_files[0];
+        auto main_sha = platform::file_hash(main_cfg);
+        if (main_sha.empty())
+        {
+            error = "Failed to hash: " + main_cfg;
+            return false;
+        }
+        if (main_sha != ctx.config_sha)
+        {
+            error = "Config SHA does not match --privileged argument.\n"
+                    "  Provided: " + ctx.config_sha + "\n"
+                    "  Expected: " + main_sha + "  " + main_cfg;
+            return false;
+        }
+    }
+
     if (issues.empty())
         return true;
 
@@ -141,31 +166,7 @@ bool security::check_path_safety(
 
     if (!ctx.privileged)
     {
-        error += "Use --privileged to allow system-path access.";
-        return false;
-    }
-
-    // --privileged: all config files must be trusted
-    std::string untrusted;
-    for (auto &cfg : config_files)
-    {
-        auto sha = platform::file_hash(cfg);
-        if (sha.empty())
-        {
-            error += "Failed to hash: " + cfg;
-            return false;
-        }
-        if (!prefs::is_trusted(sha))
-            untrusted += "    " + cfg + "\n";
-    }
-
-    if (!untrusted.empty())
-    {
-        error += "All config files must be trusted when using --privileged.\n"
-                 "Untrusted:\n" + untrusted
-                 + "  Run once without --privileged and confirm the security\n"
-                 "  prompt, or manually add the SHA256 to:\n"
-                 "    " + prefs::prefs_path();
+        error += "Use --privileged <config-sha256> to allow system-path access.";
         return false;
     }
 

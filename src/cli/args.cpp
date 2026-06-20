@@ -12,7 +12,8 @@ parsed_args parse_args(int argc, char **argv)
     CLI::App app("Project dependency & build tool");
 
     app.add_flag("--debug", args.debug, "Verbose logging");
-    app.add_flag("--privileged", args.privileged, "Allow system-path access (requires trusted config SHA256)");
+    auto *priv = app.add_option("--privileged", args.privileged_sha,
+        "Allow system-path access (requires the SHA256 of the config file)");
     app.add_option("--platform", args.platform_override, "Target platform (linux/darwin/windows)");
     app.add_option("--config", args.config_path, "Use specific config file");
     app.add_option("--os", args.target_os, "Target OS for packaging");
@@ -35,6 +36,8 @@ parsed_args parse_args(int argc, char **argv)
     {
         std::exit(app.exit(e));
     }
+
+    args.privileged = !args.privileged_sha.empty();
 
     return args;
 }

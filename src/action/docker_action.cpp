@@ -99,7 +99,10 @@ bool docker_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto dest_path = ctx.resolve_path(dest);
     fs::create_directories(dest_path);
 
-    auto cp_cmd = "docker cp " + container + ":" + target + " " + dest_path;
+    auto cp_source = container + ":" + target;
+    if (!target.empty() && target.back() == '/')
+        cp_source += '.';
+    auto cp_cmd = "docker cp " + cp_source + " " + dest_path;
     if (ctx.logger)
         ctx.logger->info(cp_cmd);
     bool ok = process::run(process::shell(), {process::shell_cmd_flag(), cp_cmd}, cwd) == 0;
