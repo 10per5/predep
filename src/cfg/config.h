@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,6 +22,7 @@ public:
     std::string get_string(const std::string &key,
                            const std::string &def = "") const;
     bool get_bool(const std::string &key, bool def = false) const;
+    std::int64_t get_int(const std::string &key, std::int64_t def = 0) const;
 
     std::vector<config_node> get_array(const std::string &key) const;
     config_node get_table(const std::string &key) const;

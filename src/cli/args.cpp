@@ -12,7 +12,7 @@ parsed_args parse_args(int argc, char **argv)
     CLI::App app("Project dependency & build tool");
 
     app.add_flag("--debug", args.debug, "Verbose logging");
-    app.add_flag("--force", args.force, "Skip confirmation prompts, not implemented for normal builds for security purposes");
+    app.add_flag("--privileged", args.privileged, "Allow system-path access (requires trusted config SHA256)");
     app.add_option("--platform", args.platform_override, "Target platform (linux/darwin/windows)");
     app.add_option("--config", args.config_path, "Use specific config file");
     app.add_option("--os", args.target_os, "Target OS for packaging");

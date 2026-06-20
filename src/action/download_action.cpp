@@ -10,19 +10,19 @@
 
 namespace fs = std::filesystem;
 
-download_action::vendor_entry_vars download_action::resolve_vendor_vars(
-    const vendor_entry &ve,
+download_action::resolved_entry download_action::resolve_entry(
+    const fetch_entry &fe,
     const std::map<std::string, std::string> &stage_vars,
     const runtime &ctx)
 {
-    vendor_entry_vars r;
+    resolved_entry r;
     r.vars = stage_vars;
-    for (auto &[k, v] : ve.vars)
+    for (auto &[k, v] : fe.vars)
         r.vars[k] = v;
 
     auto set_default = [&](const std::string &k, const std::string &v)
     { if (r.vars.find(k) == r.vars.end()) r.vars[k] = v; };
-    set_default("PLATFORM", ctx.platform);
+    set_default("PLATFORM", platform::to_string(ctx.platform));
     set_default("ARCH", platform::arch());
     set_default("OS", ctx.target_os);
 
@@ -39,30 +39,31 @@ download_action::vendor_entry_vars download_action::resolve_vendor_vars(
     set_default("EXE_SUFFIX", "");
 #endif
 
-    r.url = config_loader::interpolate(ve.url, r.vars);
+    r.url = config_loader::interpolate(fe.url, r.vars);
     r.output_name = config_loader::interpolate(
-        ve.output_name.empty() ? ve.name : ve.output_name, r.vars);
-    r.base = ctx.resolve_path(ve.dest);
+        fe.output_name.empty() ? fe.name : fe.output_name, r.vars);
+    r.base = ctx.resolve_path(fe.dest);
     auto slash = r.url.rfind('/');
-    r.fname = (slash != std::string::npos) ? r.url.substr(slash + 1) : ve.name;
+    r.fname = (slash != std::string::npos) ? r.url.substr(slash + 1) : fe.name;
     return r;
 }
 
-vendor_entry download_action::parse_entry(
+fetch_entry download_action::parse_entry(
     config_node &elem, const std::string &default_dest)
 {
-    vendor_entry ve;
-    ve.name = elem.get_string("name");
-    ve.url = elem.get_string("url");
-    ve.dest = elem.get_string("dest", default_dest);
-    ve.sha256 = elem.get_string("sha256");
-    ve.extract = elem.get_bool("extract");
-    ve.create_directory = elem.get_bool("create_directory");
-    ve.output_name = elem.get_string("output_name");
+    fetch_entry fe;
+    fe.fetch_type = elem.get_string("fetch-type");
+    fe.name = elem.get_string("name");
+    fe.url = elem.get_string("url");
+    fe.dest = elem.get_string("dest", default_dest);
+    fe.sha256 = elem.get_string("sha256");
+    fe.extract = elem.get_bool("extract");
+    fe.create_directory = elem.get_bool("create_directory");
+    fe.output_name = elem.get_string("output_name");
 
     auto ver = elem.get_string("version");
     if (!ver.empty())
-        ve.vars["version"] = ver;
+        fe.vars["version"] = ver;
 
     auto var_table = elem.get_table("variables");
     if (var_table)
@@ -70,16 +71,22 @@ vendor_entry download_action::parse_entry(
         var_table.for_each([&](const std::string &vk, const config_node &vv)
         {
             if (vv.is_string())
-                ve.vars[vk] = vv.as_string();
+                fe.vars[vk] = vv.as_string();
         });
     }
-    return ve;
+    return fe;
 }
 
 void download_action::parse(config_node &cfg, download_data &d)
 {
+    d.fetch_type = cfg.get_string("fetch-type");
+
+    auto asset_arr = cfg.get_array("assets");
+    for (auto &a : asset_arr)
+        d.assets.push_back(a.as_string());
+
     auto parse_vec = [&](const std::string &key,
-                         std::vector<vendor_entry> &vec,
+                         std::vector<fetch_entry> &vec,
                          const std::string &default_dest)
     {
         auto arr = cfg.get_array(key);
@@ -87,188 +94,165 @@ void download_action::parse(config_node &cfg, download_data &d)
             vec.push_back(parse_entry(elem, default_dest));
     };
 
-    parse_vec("vendor", d.vendors, "root://vendor/");
-    parse_vec("binary", d.binaries, "cache://bin/");
-    parse_vec("resource", d.resources, "root://resources/");
+    parse_vec("vendor", d.entries, "root://vendor/");
+    parse_vec("binary", d.entries, "cache://bin/");
+    parse_vec("resource", d.entries, "root://resources/");
 }
 
-bool download_action::check_vendor_vec(
+bool download_action::check_entries(
     const download_data &d,
     const std::map<std::string, std::string> &stage_vars,
     const runtime &ctx) const
 {
-    auto check = [&](const std::vector<vendor_entry> &vec) -> bool
+    for (auto &fe : d.entries)
     {
-        for (auto &ve : vec)
+        auto rv = resolve_entry(fe, stage_vars, ctx);
+        if (fe.extract)
         {
-            auto rv = resolve_vendor_vars(ve, stage_vars, ctx);
-            if (ve.extract)
-            {
-                auto extract_dir = ve.create_directory ? rv.base + "/" + ve.name : rv.base;
-                auto expected = extract_dir + "/" + rv.output_name;
-                if (!platform::file_exists(expected))
-                    return false;
-            }
-            else
-            {
-                auto expected = rv.base + "/" + rv.output_name;
-                if (!platform::file_exists(expected))
-                    return false;
-                if (!ve.sha256.empty() && platform::file_hash(expected) != ve.sha256)
-                    return false;
-            }
+            auto extract_dir = fe.create_directory ? rv.base + "/" + fe.name : rv.base;
+            auto expected = extract_dir + "/" + rv.output_name;
+            if (!platform::file_exists(expected))
+                return false;
         }
-        return true;
-    };
-
-    if (!d.vendors.empty() && !check(d.vendors))
-        return false;
-    if (!d.binaries.empty() && !check(d.binaries))
-        return false;
-    if (!d.resources.empty() && !check(d.resources))
-        return false;
+        else
+        {
+            auto expected = rv.base + "/" + rv.output_name;
+            if (!platform::file_exists(expected))
+                return false;
+            if (!fe.sha256.empty() && platform::file_hash(expected) != fe.sha256)
+                return false;
+        }
+    }
     return true;
 }
 
-bool download_action::resolve_vendor_vec(
+bool download_action::resolve_entries(
     download_data &d,
     const std::map<std::string, std::string> &stage_vars,
     runtime &ctx,
     std::string &error,
     const std::string &type)
 {
-    auto res = [&](const std::vector<vendor_entry> &vec) -> bool
+    for (auto &fe : d.entries)
     {
-        for (auto &ve : vec)
+        auto rv = resolve_entry(fe, stage_vars, ctx);
+
+        if (fe.extract)
         {
-            auto rv = resolve_vendor_vars(ve, stage_vars, ctx);
+            auto extract_dir = fe.create_directory ? rv.base + "/" + fe.name : rv.base;
+            auto archive_path = ctx.cache_dir + "/archives/" + rv.fname;
+            fs::create_directories(fs::path(archive_path).parent_path());
 
-            if (ve.extract)
+            bool need_download = true;
+            if (platform::file_exists(archive_path))
+                if (fe.sha256.empty() || platform::file_hash(archive_path) == fe.sha256)
+                    need_download = false;
+
+            if (need_download)
             {
-                auto extract_dir = ve.create_directory ? rv.base + "/" + ve.name : rv.base;
-                auto archive_path = ctx.cache_dir + "/archives/" + rv.fname;
-                fs::create_directories(fs::path(archive_path).parent_path());
-
-                bool need_download = true;
-                if (platform::file_exists(archive_path))
-                    if (ve.sha256.empty() || platform::file_hash(archive_path) == ve.sha256)
-                        need_download = false;
-
-                if (need_download)
+                ctx.logger->info("Downloading " + type + " " + fe.name + " from " + rv.url);
+                if (!download::download_verify(rv.url, archive_path, fe.sha256))
                 {
-                    ctx.logger->info("Downloading " + type + " " + ve.name + " from " + rv.url);
-                    if (!download::download_verify(rv.url, archive_path, ve.sha256))
-                    {
-                        error = type + " download failed for " + ve.name;
-                        return false;
-                    }
-                }
-                else
-                {
-                    if (ve.sha256.empty())
-                        ctx.logger->info("sha256 = \"" + platform::file_hash(archive_path)
-                            + "\"  # add to config to verify " + archive_path);
-                    else
-                        ctx.logger->info(type + " " + ve.name + " archive cached");
-                }
-
-                fs::create_directories(extract_dir);
-                bool ok = false;
-                if (rv.fname.ends_with(".tar.gz") || rv.fname.ends_with(".tgz"))
-                    ok = extract::tar_gz(archive_path, extract_dir);
-                else if (rv.fname.ends_with(".zip"))
-                    ok = extract::zip(archive_path, extract_dir);
-                else
-                    ok = true;
-
-                if (!ok)
-                {
-                    error = "extraction failed for " + ve.name;
+                    error = type + " download failed for " + fe.name;
                     return false;
-                }
-
-                if (ve.create_directory)
-                {
-                    // If archive has a single root dir, move its contents up
-                    std::string root;
-                    int n = 0;
-                    for (auto &e : fs::directory_iterator(extract_dir))
-                    {
-                        n++;
-                        if (n == 1 && e.is_directory())
-                            root = e.path().filename().string();
-                        else if (n > 1)
-                            root.clear();
-                    }
-                    if (n == 1 && !root.empty())
-                    {
-                        auto src = extract_dir + "/" + root;
-                        for (auto &e : fs::directory_iterator(src))
-                        {
-                            auto name = e.path().filename().string();
-                            auto dst = extract_dir + "/" + name;
-                            fs::remove_all(dst);
-                            fs::rename(e.path(), dst);
-                        }
-                        fs::remove_all(src);
-                    }
                 }
             }
             else
             {
-                auto dest_path = ve.create_directory
-                    ? rv.base + "/" + ve.name + "/" + rv.fname
-                    : rv.base + "/" + rv.fname;
+                if (fe.sha256.empty())
+                    ctx.logger->info("sha256 = \"" + platform::file_hash(archive_path)
+                        + "\"  # add to config to verify " + archive_path);
+                else
+                    ctx.logger->info(type + " " + fe.name + " archive cached");
+            }
 
-                auto parent = fs::path(dest_path).parent_path();
-                fs::create_directories(parent);
+            fs::create_directories(extract_dir);
+            bool ok = false;
+            if (rv.fname.ends_with(".tar.gz") || rv.fname.ends_with(".tgz"))
+                ok = extract::tar_gz(archive_path, extract_dir);
+            else if (rv.fname.ends_with(".zip"))
+                ok = extract::zip(archive_path, extract_dir);
+            else
+                ok = true;
 
-                if (platform::file_exists(dest_path))
+            if (!ok)
+            {
+                error = "extraction failed for " + fe.name;
+                return false;
+            }
+
+            if (fe.create_directory)
+            {
+                std::string root;
+                int n = 0;
+                for (auto &e : fs::directory_iterator(extract_dir))
                 {
-                    if (!ve.sha256.empty() && platform::file_hash(dest_path) != ve.sha256)
-                    {
-                        ctx.logger->info(ve.name + " SHA256 mismatch, re-downloading");
-                        fs::remove(dest_path);
-                    }
-                    else
-                    {
-                        ctx.logger->info(type + " " + ve.name + " already up to date");
-                        continue;
-                    }
+                    n++;
+                    if (n == 1 && e.is_directory())
+                        root = e.path().filename().string();
+                    else if (n > 1)
+                        root.clear();
                 }
-
-                ctx.logger->info("Downloading " + type + " " + ve.name + " from " + rv.url);
-
-                if (!download::download_verify(rv.url, dest_path, ve.sha256))
+                if (n == 1 && !root.empty())
                 {
-                    error = type + " download failed for " + ve.name;
-                    return false;
-                }
-
-                if (rv.output_name != ve.name)
-                {
-                    auto dst = rv.base + "/" + rv.output_name;
-                    if (!fs::exists(dst))
-                        fs::rename(dest_path, dst);
+                    auto src = extract_dir + "/" + root;
+                    for (auto &e : fs::directory_iterator(src))
+                    {
+                        auto name = e.path().filename().string();
+                        auto dst = extract_dir + "/" + name;
+                        fs::remove_all(dst);
+                        fs::rename(e.path(), dst);
+                    }
+                    fs::remove_all(src);
                 }
             }
         }
-        return true;
-    };
+        else
+        {
+            auto dest_path = fe.create_directory
+                ? rv.base + "/" + fe.name + "/" + rv.fname
+                : rv.base + "/" + rv.fname;
 
-    if (!d.vendors.empty() && !res(d.vendors))
-        return false;
-    if (!d.binaries.empty() && !res(d.binaries))
-        return false;
-    if (!d.resources.empty() && !res(d.resources))
-        return false;
+            auto parent = fs::path(dest_path).parent_path();
+            fs::create_directories(parent);
+
+            if (platform::file_exists(dest_path))
+            {
+                if (!fe.sha256.empty() && platform::file_hash(dest_path) != fe.sha256)
+                {
+                    ctx.logger->info(fe.name + " SHA256 mismatch, re-downloading");
+                    fs::remove(dest_path);
+                }
+                else
+                {
+                    ctx.logger->info(type + " " + fe.name + " already up to date");
+                    continue;
+                }
+            }
+
+            ctx.logger->info("Downloading " + type + " " + fe.name + " from " + rv.url);
+
+            if (!download::download_verify(rv.url, dest_path, fe.sha256))
+            {
+                error = type + " download failed for " + fe.name;
+                return false;
+            }
+
+            if (rv.output_name != fe.name)
+            {
+                auto dst = rv.base + "/" + rv.output_name;
+                if (!fs::exists(dst))
+                    fs::rename(dest_path, dst);
+            }
+        }
+    }
     return true;
 }
 
 bool download_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 {
     auto *d = dynamic_cast<const download_data*>(sd.data.get());
-    if (d && check_vendor_vec(*d, sd.vars, ctx))
+    if (d && check_entries(*d, d->vars, ctx))
         return true;
 
     return check_outputs(sd, ctx);
@@ -283,15 +267,12 @@ bool download_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         return false;
     }
 
-    bool has_entries = !d->vendors.empty()
-                    || !d->binaries.empty()
-                    || !d->resources.empty();
-
-    if (!has_entries)
+    if (d->entries.empty())
     {
-        error = "stage " + sd.name + " has type '" + sd.type + "' but no entries defined";
+        error = "stage " + sd.name + " has type '" + to_string(sd.type) + "' but no entries defined";
         return false;
     }
 
-    return resolve_vendor_vec(*d, sd.vars, ctx, error, sd.type);
+    auto type_label = d->fetch_type.empty() ? to_string(sd.type) : d->fetch_type;
+    return resolve_entries(*d, d->vars, ctx, error, type_label);
 }

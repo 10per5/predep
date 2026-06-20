@@ -1,5 +1,6 @@
 # Self-hosting config: build predep with predep
-main = "predep-build"
+main = "build"
+project = "predep"
 
 [[stages]]
 name = "vendor"
@@ -21,22 +22,14 @@ dest = "root://vendor/"
 create_directory = true
 
 [[stages]]
-name = "predep-build"
+name = "build"
 description = "Build predep binary (native)"
-type = "run"
+type = "premake5"
 depends = ["vendor"]
 outputs = ["root://bin/predep"]
-commands = [
-    "premake5 gmake && make config=release -j$(nproc) && strip bin/predep",
-]
-
-[platform.windows]
-commands = [
-    "premake5 gmake && msbuild predep.sln /p:Configuration=Release",
-]
 
 [[stages]]
-name = "predep-docker"
+name = "docker"
 description = "Build predep binary via Docker"
 type = "docker"
 depends = ["vendor"]
@@ -50,3 +43,9 @@ dest = "root://bin/"
 recipe = "images/win32.Dockerfile"
 target = "/src/predep/bin/predep.exe"
 dest = "root://bin/"
+
+[install]
+depends = ["build"]
+artifacts = [
+    { source = "root://bin/predep", dest = "predep" },
+]

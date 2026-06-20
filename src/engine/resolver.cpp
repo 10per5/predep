@@ -1,9 +1,14 @@
 #include "engine/resolver.h"
 #include "action/download_action.h"
 #include "action/run_action.h"
+#include "action/binary_action.h"
+#include "action/premake5_action.h"
 #include "action/docker_action.h"
 #include "action/package_action.h"
+#include "action/install_action.h"
+#include "action/uninstall_action.h"
 #include "action/group_action.h"
+#include "action/disabled_action.h"
 #include "logger/logger.h"
 
 resolver::resolver(
@@ -12,14 +17,18 @@ resolver::resolver(
     : m_stages(stages)
     , m_error(error)
 {
-    m_actions["download"] = std::make_unique<download_action>();
-    m_actions["vendor"]   = std::make_unique<download_action>();
-    m_actions["binary"]   = std::make_unique<download_action>();
-    m_actions["resource"] = std::make_unique<download_action>();
-    m_actions["run"]      = std::make_unique<run_action>();
-    m_actions["docker"]   = std::make_unique<docker_action>();
-    m_actions["package"]  = std::make_unique<package_action>();
-    m_actions["group"]    = std::make_unique<group_action>();
+    m_actions[stage_type::vendor]   = std::make_unique<download_action>();
+    m_actions[stage_type::fetch]    = std::make_unique<download_action>();
+    m_actions[stage_type::resource] = std::make_unique<download_action>();
+    m_actions[stage_type::run]      = std::make_unique<run_action>();
+    m_actions[stage_type::premake5] = std::make_unique<premake5_action>();
+    m_actions[stage_type::docker]   = std::make_unique<docker_action>();
+    m_actions[stage_type::package]  = std::make_unique<package_action>();
+    m_actions[stage_type::group]    = std::make_unique<group_action>();
+    m_actions[stage_type::disabled] = std::make_unique<disabled_action>();
+    m_actions[stage_type::binary]   = std::make_unique<binary_action>();
+    m_actions[stage_type::install]   = std::make_unique<install_action>();
+    m_actions[stage_type::uninstall] = std::make_unique<uninstall_action>();
 }
 
 stage_desc *resolver::find(const std::string &name)
@@ -66,7 +75,7 @@ bool resolver::resolve(const std::string &name, runtime &ctx,
     if (it == m_actions.end())
     {
         ctx.root = saved_root;
-        m_error = "unknown stage type: " + sd->type;
+        m_error = "unknown stage type: " + to_string(sd->type);
         return false;
     }
 

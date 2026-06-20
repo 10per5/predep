@@ -2,6 +2,7 @@
 
 #include "action/action.h"
 #include "data/stage.h"
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -11,7 +12,7 @@ class resolver
 {
     std::unordered_map<std::string, stage_desc> &m_stages;
     std::string &m_error;
-    std::unordered_map<std::string, std::unique_ptr<action>> m_actions;
+    std::map<stage_type, std::unique_ptr<action>> m_actions;
 public:
     resolver(std::unordered_map<std::string, stage_desc> &stages,
              std::string &error);

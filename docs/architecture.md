@@ -14,12 +14,12 @@ CLI args → config discovery → engine → resolver → action dispatch → re
 ```
 
 1. **Entry point** parses CLI flags (stage name, platform override, debug mode,
-   config path, force flag). Discovers the project root by walking up from the
+   config path, privileged flag). Discovers the project root by walking up from the
    working directory looking for `predep.toml`.
 
 2. A **runtime context** is assembled with the resolved root path, platform
    cache directory, target OS, architecture, logger strategy, and prompter
-   strategy (interactive / force / null).
+   strategy (interactive / privileged / null).
 
 3. The **engine** loads the manifest — this means parsing the root TOML,
    recursing into `[[include]]` entries, merging stages under their namespaces,
@@ -113,7 +113,8 @@ Selected by the `--format` CLI flag via a factory function.
 Abstract interface for user confirmation with three implementations:
 - **InteractivePrompter** — checks for a TTY, displays a formatted warning box
   on stderr, reads yes/no from stdin
-- **ForcePrompter** — auto-accepts (`--force` flag)
+- **PrivilegedPrompter** — same as InteractivePrompter but used when
+  `--privileged` is active; allows non-TTY auto-accept
 - **NullPrompter** — auto-rejects (safe default when no TTY is available)
 
 ### System abstraction layer (namespaces)

@@ -9,7 +9,7 @@
 
 class download_action : public action
 {
-    struct vendor_entry_vars
+    struct resolved_entry
     {
         std::map<std::string, std::string> vars;
         std::string url;
@@ -18,22 +18,22 @@ class download_action : public action
         std::string fname;
     };
 
-    static vendor_entry_vars resolve_vendor_vars(
-        const vendor_entry &ve,
+    static resolved_entry resolve_entry(
+        const fetch_entry &fe,
         const std::map<std::string, std::string> &stage_vars,
         const runtime &ctx);
 
-    bool check_vendor_vec(const download_data &d,
-                          const std::map<std::string, std::string> &stage_vars,
-                          const runtime &ctx) const;
-    bool resolve_vendor_vec(download_data &d,
-                            const std::map<std::string, std::string> &stage_vars,
-                            runtime &ctx,
-                            std::string &error,
-                            const std::string &type);
+    bool check_entries(const download_data &d,
+                       const std::map<std::string, std::string> &stage_vars,
+                       const runtime &ctx) const;
+    bool resolve_entries(download_data &d,
+                         const std::map<std::string, std::string> &stage_vars,
+                         runtime &ctx,
+                         std::string &error,
+                         const std::string &type_label);
 
 public:
-    static vendor_entry parse_entry(config_node &elem, const std::string &default_dest);
+    static fetch_entry parse_entry(config_node &elem, const std::string &default_dest);
     static void parse(config_node &cfg, download_data &d);
 
     bool is_resolved(const stage_desc &sd, runtime &ctx) const override;

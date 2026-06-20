@@ -1,5 +1,6 @@
 #include "action/docker_action.h"
 #include "logger/logger.h"
+#include "security/security.h"
 #include "sys/process.h"
 #include <filesystem>
 
@@ -14,9 +15,26 @@ bool docker_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 
 void docker_action::parse(config_node &cfg, docker_data &d)
 {
-    d.recipe = cfg.get_string("recipe");
-    d.target = cfg.get_string("target");
-    d.dest = cfg.get_string("dest");
+    d.defaults.recipe = cfg.get_string("recipe");
+    d.defaults.target = cfg.get_string("target");
+    d.defaults.dest = cfg.get_string("dest");
+
+    auto plat = cfg.get_table("platform");
+    if (!plat)
+        return;
+
+    plat.for_each([&](const std::string &key, const config_node &val)
+    {
+        auto pt = platform::from_string(key);
+        platform_entry<docker_entry> pe;
+
+        pe.recipe = val.get_string("recipe");
+        pe.target = val.get_string("target");
+        pe.dest = val.get_string("dest");
+        pe.build_context = val.get_string("build_context");
+
+        d.platform[pt] = std::move(pe);
+    });
 }
 
 bool docker_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
@@ -28,27 +46,28 @@ bool docker_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         return false;
     }
 
-    auto pit = sd.platforms.find(ctx.platform);
-    bool has_plat = pit != sd.platforms.end();
+    auto pit = d->platform.find(ctx.platform);
+    bool has_plat = pit != d->platform.end();
 
     auto &recipe = (has_plat && !pit->second.recipe.empty())
-        ? pit->second.recipe : d->recipe;
+        ? pit->second.recipe : d->defaults.recipe;
     auto &target = (has_plat && !pit->second.target.empty())
-        ? pit->second.target : d->target;
+        ? pit->second.target : d->defaults.target;
     auto &dest = (has_plat && !pit->second.dest.empty())
-        ? pit->second.dest : d->dest;
+        ? pit->second.dest : d->defaults.dest;
 
     if (ctx.logger)
         ctx.logger->info("Running (docker, recipe: " + recipe + ")");
 
-    auto cwd = action::resolve_cwd(sd, ctx);
+    auto bc = d->build_context;
+    if (has_plat && !pit->second.build_context.empty())
+        bc = pit->second.build_context;
+    auto cwd = action::resolve_cwd(bc, ctx);
 
-    if (!action::confirm_build_context(sd, ctx, error))
+    if (!security::confirm_build_context(sd, bc, cwd, ctx, error))
         return false;
 
-    // Rebase recipe path relative to the build context cwd
     auto rel_recipe = recipe;
-    auto bc = action::resolve_build_context(sd, ctx);
     if (!bc.empty() && bc != "self")
     {
         auto abs_recipe = fs::absolute(fs::path(ctx.root) / recipe);

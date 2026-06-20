@@ -5,7 +5,7 @@
 struct parsed_args
 {
     bool debug = false;
-    bool force = false;
+    bool privileged = false;
     bool list = false;
     int jobs = 1;
     int parent_limit = 0;

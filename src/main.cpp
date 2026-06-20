@@ -3,6 +3,7 @@
 #include "cli/discovery.h"
 #include "logger/logger.h"
 #include "logger/prompter.h"
+#include "security/security.h"
 #include "sys/platform.h"
 #include "data/stage.h"
 #include <functional>
@@ -13,7 +14,7 @@ int main(int argc, char **argv)
 {
     auto args = parse_args(argc, argv);
     auto logger = make_logger(args.format, args.debug);
-    auto prompter = make_prompter(args.force);
+    auto prompter = make_prompter(args.privileged);
 
     auto root = project_root(args.parent_limit);
 
@@ -44,10 +45,20 @@ int main(int argc, char **argv)
     ctx.root = root;
     ctx.cache_dir = platform::cache_dir();
     ctx.target_os = args.target_os;
-    ctx.platform = args.platform_override.empty() ? args.target_os : args.platform_override;
+    ctx.platform = platform::from_string(args.platform_override.empty() ? args.target_os : args.platform_override);
     ctx.max_concurrency = args.jobs;
+    ctx.privileged = args.privileged;
     ctx.logger = logger.get();
     ctx.prompter = prompter.get();
+
+    {
+        std::string sudo_err;
+        if (!security::check_root_sudo(ctx, sudo_err))
+        {
+            logger->error(sudo_err);
+            return 1;
+        }
+    }
 
     auto main_name = eng.main_stage();
 
@@ -80,7 +91,10 @@ int main(int argc, char **argv)
     }
 
     if (!eng.resolve(stage_name, ctx))
+    {
+        logger->error(eng.last_error());
         return 1;
+    }
 
     logger->info("Stage '" + stage_name + "' resolved successfully");
     return 0;

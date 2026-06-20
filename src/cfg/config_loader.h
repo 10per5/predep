@@ -12,11 +12,15 @@ class config_loader
     std::string &m_config_dir;
     std::string &m_error;
     std::string &m_main_stage;
+    std::string &m_project;
+    std::vector<std::string> &m_config_files;
 public:
     config_loader(std::unordered_map<std::string, stage_desc> &stages,
                   std::string &config_dir,
                   std::string &error,
-                  std::string &main_stage);
+                  std::string &main_stage,
+                  std::string &project,
+                  std::vector<std::string> &config_files);
 
     bool load(const std::string &path);
 

@@ -3,8 +3,6 @@
 > **Experimental** — work in progress. Security hardening, sandboxing, and
 > audit capabilities are planned for future releases.
 
-[![GitHub](https://img.shields.io/badge/GitHub-10per5/predoc-181717?style=for-the-badge&logo=github)](https://github.com/10per5/predoc)
-
 A cross-platform stage processor: reads a declarative TOML manifest, resolves
 stages and their dependencies in order, and produces artifacts. Used by the
 [predoc](https://github.com/10per5/predoc) project.
@@ -21,7 +19,7 @@ predep [options] [<stage>]
 | `predep <stage>` | Resolve a single stage and its transitive deps |
 | `predep --list`  | List available stages from all manifests       |
 
-Options: `--debug`, `--platform <name>`, `--config <path>`, `--os <os>`, `--force`, `--help`
+Options: `--debug`, `--platform <name>`, `--config <path>`, `--os <os>`, `--privileged`, `--help`
 
 ## Resolution Order
 
@@ -32,13 +30,13 @@ Options: `--debug`, `--platform <name>`, `--config <path>`, `--os <os>`, `--forc
 
 ## Stage Types
 
-| Type                             | Behavior                                                                |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `vendor` / `binary` / `resource` | Download + SHA256 verify + extract, scoped to root/cache paths          |
-| `run`                            | Execute shell commands (platform overrides via `[platform.xxx]`)        |
-| `docker`                         | Build image, create container, copy out target                          |
-| `group`                          | No-op — checks all outputs exist, groups stages into a single command   |
-| `package`                        | Copy artifacts into dist/ and create platform archive (tar.gz / zip)    |
+| Type                             | Behavior                                                              |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `vendor` / `binary` / `resource` | Download + SHA256 verify + extract, scoped to root/cache paths        |
+| `run`                            | Execute shell commands (platform overrides via `[platform.xxx]`)      |
+| `docker`                         | Build image, create container, copy out target                        |
+| `group`                          | No-op — checks all outputs exist, groups stages into a single command |
+| `package`                        | Copy artifacts into dist/ and create platform archive (tar.gz / zip)  |
 
 ## Manifests
 

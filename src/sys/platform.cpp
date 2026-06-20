@@ -1,4 +1,5 @@
 #include "sys/platform.h"
+#include "data/const.h"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -176,6 +177,35 @@ std::string file_hash(const std::string &path)
         result += hex;
     }
     return result;
+}
+
+}
+
+namespace platform {
+
+platform_type current_platform()
+{
+    auto s = os();
+    if (s == "windows") return platform_type::windows;
+    if (s == "darwin")  return platform_type::darwin;
+    return platform_type::linux;
+}
+
+platform_type from_string(const std::string &s)
+{
+    if (s == "windows") return platform_type::windows;
+    if (s == "darwin")  return platform_type::darwin;
+    return platform_type::linux;
+}
+
+std::string to_string(platform_type p)
+{
+    switch (p)
+    {
+        case platform_type::windows: return "windows";
+        case platform_type::darwin:  return "darwin";
+        default: return "linux";
+    }
 }
 
 }

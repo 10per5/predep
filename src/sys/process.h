@@ -21,4 +21,9 @@ run_result run_with_err(const std::string &cmd, const std::vector<std::string> &
 std::string shell();
 std::string shell_cmd_flag();
 
+#ifdef _WIN32
+int run_elevated(const std::string &cmd, const std::vector<std::string> &args = {},
+                 const std::string &cwd = "");
+#endif
+
 }

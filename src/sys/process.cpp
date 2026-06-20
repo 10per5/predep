@@ -165,6 +165,77 @@ std::string capture(const std::string &cmd, const std::vector<std::string> &args
     return result;
 }
 
+/*
+ * run_elevated -- Windows-only UAC elevation via ShellExecuteExW with "runas" verb.
+ *
+ * Used in install_action.cpp and uninstall_action.cpp as the Windows analogue
+ * of `sudo` on Unix. The directory-copy branch in copy_artifact also uses it
+ * for xcopy when fs::copy fails on permission_denied.
+ *
+ * Rationale: Keeps elevation explicit and platform-specific rather than hidden
+ * behind a generic platform::elevate() abstraction. Each call spawns cmd.exe
+ * /c <command> via ShellExecuteExW, triggering the standard UAC prompt when
+ * the process is not already elevated.
+ *
+ * Unlike sudo, Windows UAC (runas) does not cache credentials -- every call
+ * prompts independently. There is no credential session to "clear" afterwards,
+ * so no counterpart to sudo -K exists. On Windows 11 24H2+ the built-in `sudo`
+ * command supports credential caching, but this code uses the traditional runas
+ * verb for broader compatibility.
+ *
+ * Returns exit code (0 = success), -1 if elevation failed to launch.
+ */
+int run_elevated(const std::string &cmd, const std::vector<std::string> &args,
+                 const std::string &cwd)
+{
+    std::string cmdline = cmd;
+    for (auto &a : args)
+    {
+        cmdline += " ";
+        cmdline += a;
+    }
+
+    int needed = MultiByteToWideChar(CP_UTF8, 0, cmdline.c_str(), -1, nullptr, 0);
+    if (needed <= 0)
+        return -1;
+    std::wstring wcmdline(needed, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, cmdline.c_str(), -1, &wcmdline[0], needed);
+
+    std::wstring wparams = L"/c " + wcmdline;
+
+    std::wstring wdir;
+    if (!cwd.empty())
+    {
+        int needed_dir = MultiByteToWideChar(CP_UTF8, 0, cwd.c_str(), -1, nullptr, 0);
+        if (needed_dir > 0)
+        {
+            wdir.resize(needed_dir);
+            MultiByteToWideChar(CP_UTF8, 0, cwd.c_str(), -1, &wdir[0], needed_dir);
+        }
+    }
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.lpVerb = L"runas";
+    sei.lpFile = L"cmd.exe";
+    sei.lpParameters = wparams.c_str();
+    sei.lpDirectory = wdir.empty() ? nullptr : wdir.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei))
+        return -1;
+
+    if (sei.hProcess)
+    {
+        WaitForSingleObject(sei.hProcess, INFINITE);
+        DWORD exit_code = 0;
+        GetExitCodeProcess(sei.hProcess, &exit_code);
+        CloseHandle(sei.hProcess);
+        return static_cast<int>(exit_code);
+    }
+
+    return 0;
+}
+
 #else // POSIX
 
 int run(const std::string &cmd, const std::vector<std::string> &args,

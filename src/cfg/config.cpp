@@ -1,4 +1,5 @@
 #include "cfg/config.h"
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <tomlpp/toml.hpp>
@@ -70,6 +71,18 @@ std::string config_node::get_string(const std::string &key,
     auto nv = (*tbl)[key];
     auto v = nv.as_string();
     return v ? std::string(**v) : def;
+}
+
+std::int64_t config_node::get_int(const std::string &key, std::int64_t def) const
+{
+    if (!m_impl || !m_impl->node)
+        return def;
+    auto tbl = m_impl->node->as_table();
+    if (!tbl)
+        return def;
+    auto nv = (*tbl)[key];
+    auto v = nv.as_integer();
+    return v ? static_cast<std::int64_t>(**v) : def;
 }
 
 bool config_node::get_bool(const std::string &key, bool def) const

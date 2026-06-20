@@ -1,25 +1,6 @@
+#include "logger/console.h"
 #include "logger/logger.h"
-#include <cstdlib>
 #include <iostream>
-
-#ifdef _WIN32
-  #include <windows.h>
-#else
-  #include <unistd.h>
-#endif
-
-// ---- helpers ----------------------------------------------------------------
-
-static bool is_tty()
-{
-#ifdef _WIN32
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD mode = 0;
-    return h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) && (mode & 0x0004);
-#else
-    return isatty(STDOUT_FILENO) || isatty(STDERR_FILENO);
-#endif
-}
 
 // ---- ColorLogger -----------------------------------------------------------
 
@@ -29,24 +10,28 @@ ColorLogger::ColorLogger(bool debug)
 
 void ColorLogger::info(const std::string &msg)
 {
-    std::cout << "\033[36m -> \033[0m" << msg << "\n";
+    std::cout << console::color(console::level::info)
+              << " -> " << console::reset() << msg << "\n";
 }
 
 void ColorLogger::warn(const std::string &msg)
 {
-    std::cerr << "\033[33m WARNING: \033[0m" << msg << "\n";
+    std::cerr << console::color(console::level::warn)
+              << " WARNING: " << console::reset() << msg << "\n";
 }
 
 void ColorLogger::error(const std::string &msg)
 {
-    std::cerr << "\033[31m  ERROR: \033[0m" << msg << "\n";
+    std::cerr << console::color(console::level::error)
+              << "  ERROR: " << console::reset() << msg << "\n";
 }
 
 void ColorLogger::debug(const std::string &msg)
 {
     if (!m_debug)
         return;
-    std::cerr << "\033[90m  [debug] \033[0m" << msg << "\n";
+    std::cerr << console::color(console::level::debug)
+              << "  [debug] " << console::reset() << msg << "\n";
 }
 
 // ---- MonochromeLogger ------------------------------------------------------
@@ -117,7 +102,7 @@ std::unique_ptr<Logger> make_logger(const std::string &format, bool debug)
         return std::make_unique<MonochromeLogger>(debug);
 
     // auto-detect
-    if (!std::getenv("NO_COLOR") && is_tty())
+    if (console::wants_color())
         return std::make_unique<ColorLogger>(debug);
     return std::make_unique<MonochromeLogger>(debug);
 }
