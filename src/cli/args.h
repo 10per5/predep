@@ -7,6 +7,7 @@ struct parsed_args
     bool debug = false;
     bool privileged = false;
     bool list = false;
+    bool version = false;
     int jobs = 1;
     int parent_limit = 0;
     std::string format;

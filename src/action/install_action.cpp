@@ -310,7 +310,7 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     for (auto &art : artifacts)
     {
         auto src = ctx.resolve_path(art.source);
-        auto dst = install_dir + "/" + art.dest;
+        auto dst = (fs::path(install_dir) / art.dest).string();
 
         if (!fs::exists(src))
         {
@@ -401,7 +401,7 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     // Write manifest for uninstall (elevation still active here)
     {
-        auto manifest_path = install_dir + "/" + path::manifest;
+        auto manifest_path = (fs::path(install_dir) / path::manifest).string();
         std::string manifest;
         for (auto &art : artifacts)
         {

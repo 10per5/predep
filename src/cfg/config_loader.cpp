@@ -89,6 +89,12 @@ static void merge_root_entries(
                 else
                     continue;
             }
+            else if (!fetch_type_filter.empty() && stype == stage_type::fetch)
+            {
+                auto *dd = dynamic_cast<download_data*>(sd.data.get());
+                if (!dd || dd->fetch_type != fetch_type_filter)
+                    continue;
+            }
             auto *dd = dynamic_cast<download_data*>(sd.data.get());
             if (!dd)
                 continue;
@@ -255,6 +261,190 @@ static void parse_stages(
     merge_root_entries(stages, root, stage_type::vendor, "vendor", "", "root://vendor/", "vendor");
     merge_root_entries(stages, root, stage_type::fetch, "binary", "binary", "cache://bin/", "binary");
     merge_root_entries(stages, root, stage_type::resource, "resource", "", "root://resources/", "resource");
+
+    // Merge scoped root-level [platform.<os>] overrides
+    auto root_plat = root.get_table("platform");
+    if (root_plat)
+    {
+        root_plat.for_each([&](const std::string &os_key, const config_node &os_val)
+        {
+            auto pt = platform::from_string(os_key);
+            if (pt == platform_type::linux && os_key != "linux")
+                return;
+
+            // --- Stage overrides: platform.<os>.stage.<name> ---
+            auto stage_tbl = os_val.get_table("stage");
+            if (stage_tbl)
+            {
+                stage_tbl.for_each([&](const std::string &sname, const config_node &sv)
+                {
+                    auto it = stages.find(sname);
+                    if (it == stages.end())
+                        return;
+                    auto &sd = it->second;
+
+                    switch (sd.type)
+                    {
+                        case stage_type::docker:
+                        {
+                            auto *d = dynamic_cast<docker_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<docker_entry> pe;
+                            pe.recipe = sv.get_string("recipe");
+                            pe.target = sv.get_string("target");
+                            pe.dest = sv.get_string("dest");
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::run:
+                        {
+                            auto *d = dynamic_cast<run_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<run_entry> pe;
+                            auto cmds = sv.get_array("commands");
+                            for (auto &c : cmds)
+                                pe.commands.push_back(c.as_string());
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::binary:
+                        {
+                            auto *d = dynamic_cast<binary_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<binary_entry> pe;
+                            auto pparams = sv.get_table("params");
+                            if (pparams)
+                            {
+                                pparams.for_each([&](const std::string &pk, const config_node &pv)
+                                {
+                                    pe.params[pk] = pv.as_string();
+                                });
+                            }
+                            auto pargs = sv.get_array("args");
+                            for (auto &a : pargs)
+                                pe.args.push_back(a.as_string());
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::premake5:
+                        {
+                            auto *d = dynamic_cast<premake5_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<premake5_entry> pe;
+                            auto act = sv.get_string("action");
+                            if (!act.empty()) pe.action = act;
+                            if (sv.has("make")) pe.make = sv.get_bool("make");
+                            if (sv.has("strip")) pe.strip = sv.get_bool("strip");
+                            auto tgt = sv.get_string("target");
+                            if (!tgt.empty()) pe.target = tgt;
+                            auto proj = sv.get_string("project");
+                            if (!proj.empty()) pe.project = proj;
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::install:
+                        {
+                            auto *d = dynamic_cast<install_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<install_entry> pe;
+                            auto dir = sv.get_string("dir");
+                            if (!dir.empty()) pe.dir = dir;
+                            auto arts = sv.get_array("artifacts");
+                            for (auto &elem : arts)
+                            {
+                                artifact_entry ae;
+                                ae.source = elem.get_string("source");
+                                ae.dest = elem.get_string("dest");
+                                ae.userdir = elem.get_bool("userdir");
+                                pe.artifacts.push_back(ae);
+                            }
+                            if (sv.has("symlink")) pe.symlink = sv.get_bool("symlink");
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::uninstall:
+                        {
+                            auto *d = dynamic_cast<uninstall_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<install_entry> pe;
+                            auto dir = sv.get_string("dir");
+                            if (!dir.empty()) pe.dir = dir;
+                            auto arts = sv.get_array("artifacts");
+                            for (auto &elem : arts)
+                            {
+                                artifact_entry ae;
+                                ae.source = elem.get_string("source");
+                                ae.dest = elem.get_string("dest");
+                                ae.userdir = elem.get_bool("userdir");
+                                pe.artifacts.push_back(ae);
+                            }
+                            if (sv.has("symlink")) pe.symlink = sv.get_bool("symlink");
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                });
+            }
+
+            // --- Entry overrides: platform.<os>.binary/vendor/resource.<name> ---
+            auto override_entries = [&](const std::string &scope)
+            {
+                auto tbl = os_val.get_table(scope);
+                if (!tbl) return;
+                tbl.for_each([&](const std::string &entry_name, const config_node &ev)
+                {
+                    for (auto &[_, sd] : stages)
+                    {
+                        if (!is_download(sd.type))
+                            continue;
+                        auto *dd = dynamic_cast<download_data*>(sd.data.get());
+                        if (!dd) continue;
+                        for (auto &fe : dd->entries)
+                        {
+                            if (fe.name != entry_name)
+                                continue;
+
+                            auto url = ev.get_string("url");
+                            if (!url.empty()) fe.url = url;
+                            auto sha256 = ev.get_string("sha256");
+                            if (!sha256.empty()) fe.sha256 = sha256;
+                            auto dest = ev.get_string("dest");
+                            if (!dest.empty()) fe.dest = dest;
+                            auto output_name = ev.get_string("output_name");
+                            if (!output_name.empty()) fe.output_name = output_name;
+                            if (ev.has("extract"))
+                                fe.extract = ev.get_bool("extract");
+                            if (ev.has("create_directory"))
+                                fe.create_directory = ev.get_bool("create_directory");
+                            auto ver = ev.get_string("version");
+                            if (!ver.empty()) fe.vars["version"] = ver;
+
+                            auto vars_tbl = ev.get_table("variables");
+                            if (vars_tbl)
+                            {
+                                vars_tbl.for_each([&](const std::string &vk, const config_node &vv)
+                                {
+                                    if (vv.is_string())
+                                        fe.vars[vk] = vv.as_string();
+                                });
+                            }
+                        }
+                    }
+                });
+            };
+            override_entries("binary");
+            override_entries("vendor");
+            override_entries("resource");
+        });
+    }
 }
 
 static bool add_single_toml(
@@ -420,7 +610,7 @@ bool config_loader::load(const std::string &path)
                 ns = dir;
         }
 
-        auto full = m_config_dir + "/" + rel;
+        auto full = (fs::path(m_config_dir) / rel).string();
         auto inc_dir = fs::absolute(fs::path(full).parent_path()).string();
         m_config_files.push_back(full);
         if (!add_single_toml(m_stages, m_config_dir, m_error, full, inc_dir, ns, only, m_project))

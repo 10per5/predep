@@ -2,6 +2,7 @@
 
 #include "data/const.h"
 #include "sys/platform.h"
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -37,6 +38,8 @@ struct fetch_entry
     std::string output_name;
     bool extract = false;
     bool create_directory = false;
+    std::vector<std::string> include;
+    std::vector<std::string> exclude;
     std::map<std::string, std::string> vars;
 };
 
@@ -190,12 +193,13 @@ struct runtime
 
 inline std::string runtime::resolve_path(const std::string &path) const
 {
+    namespace fs = std::filesystem;
     auto result = path;
     auto p1 = result.find(path::cache);
     if (p1 != std::string::npos)
-        result = result.substr(0, p1) + cache_dir + "/" + result.substr(p1 + path::cache.size());
+        result = (fs::path(result.substr(0, p1)) / cache_dir / result.substr(p1 + path::cache.size())).string();
     auto p2 = result.find(path::root);
     if (p2 != std::string::npos)
-        result = result.substr(0, p2) + root + "/" + result.substr(p2 + path::root.size());
+        result = (fs::path(result.substr(0, p2)) / root / result.substr(p2 + path::root.size())).string();
     return result;
 }

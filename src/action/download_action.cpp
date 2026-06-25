@@ -6,7 +6,32 @@
 #include "sys/platform.h"
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+
+static void show_progress(const std::string &label, size_t downloaded, size_t total)
+{
+    if (total == 0) return;
+    int pct = static_cast<int>(downloaded * 100 / total);
+    int bar = 40;
+    int pos = pct * bar / 100;
+
+    std::string line = "  " + label + ": [";
+    for (int i = 0; i < bar; i++)
+        line += (i < pos ? '=' : (i == pos && pos < bar ? '>' : ' '));
+    line += "] ";
+    if (pct < 10) line += "  ";
+    else if (pct < 100) line += " ";
+    line += std::to_string(pct) + "%";
+
+    if (line.size() < 62)
+        line.append(62 - line.size(), ' ');
+
+    std::cerr << '\r' << line << std::flush;
+
+    if (downloaded >= total)
+        std::cerr << "\n  " << label << ": done.\n";
+}
 
 namespace fs = std::filesystem;
 
@@ -39,6 +64,9 @@ download_action::resolved_entry download_action::resolve_entry(
     set_default("EXE_SUFFIX", "");
 #endif
 
+    auto archext = (ctx.platform == platform_type::windows) ? std::string("zip") : std::string("tar.gz");
+    set_default("ARCHEXT", archext);
+
     r.url = config_loader::interpolate(fe.url, r.vars);
     r.output_name = config_loader::interpolate(
         fe.output_name.empty() ? fe.name : fe.output_name, r.vars);
@@ -60,6 +88,24 @@ fetch_entry download_action::parse_entry(
     fe.extract = elem.get_bool("extract");
     fe.create_directory = elem.get_bool("create_directory");
     fe.output_name = elem.get_string("output_name");
+
+    auto parse_str_or_arr = [&](const std::string &key, std::vector<std::string> &out)
+    {
+        auto arr = elem.get_array(key);
+        if (!arr.empty())
+        {
+            for (auto &a : arr)
+                out.push_back(a.as_string());
+        }
+        else
+        {
+            auto s = elem.get_string(key);
+            if (!s.empty())
+                out.push_back(s);
+        }
+    };
+    parse_str_or_arr("include", fe.include);
+    parse_str_or_arr("exclude", fe.exclude);
 
     auto ver = elem.get_string("version");
     if (!ver.empty())
@@ -109,14 +155,28 @@ bool download_action::check_entries(
         auto rv = resolve_entry(fe, stage_vars, ctx);
         if (fe.extract)
         {
-            auto extract_dir = fe.create_directory ? rv.base + "/" + fe.name : rv.base;
-            auto expected = extract_dir + "/" + rv.output_name;
+            auto extract_dir = fe.create_directory ? (fs::path(rv.base) / fe.name).string() : rv.base;
+            auto csum_path = (fs::path(extract_dir) / "predep.csum").string();
+            if (platform::file_exists(csum_path))
+            {
+                bool match = fe.sha256.empty();
+                if (!fe.sha256.empty())
+                {
+                    std::ifstream f(csum_path);
+                    std::string stored;
+                    std::getline(f, stored);
+                    match = (stored == fe.sha256);
+                }
+                if (match)
+                    continue;
+            }
+            auto expected = (fs::path(extract_dir) / rv.output_name).string();
             if (!platform::file_exists(expected))
                 return false;
         }
         else
         {
-            auto expected = rv.base + "/" + rv.output_name;
+            auto expected = (fs::path(rv.base) / rv.output_name).string();
             if (!platform::file_exists(expected))
                 return false;
             if (!fe.sha256.empty() && platform::file_hash(expected) != fe.sha256)
@@ -139,8 +199,8 @@ bool download_action::resolve_entries(
 
         if (fe.extract)
         {
-            auto extract_dir = fe.create_directory ? rv.base + "/" + fe.name : rv.base;
-            auto archive_path = ctx.cache_dir + "/archives/" + rv.fname;
+            auto extract_dir = fe.create_directory ? (fs::path(rv.base) / fe.name).string() : rv.base;
+            auto archive_path = (fs::path(ctx.cache_dir) / "archives" / rv.fname).string();
             fs::create_directories(fs::path(archive_path).parent_path());
 
             bool need_download = true;
@@ -151,7 +211,9 @@ bool download_action::resolve_entries(
             if (need_download)
             {
                 ctx.logger->info("Downloading " + type + " " + fe.name + " from " + rv.url);
-                if (!download::download_verify(rv.url, archive_path, fe.sha256))
+                auto prog = [&, label = std::string(fe.name)](size_t dl, size_t total)
+                    { show_progress(label, dl, total); };
+                if (!download::download_verify(rv.url, archive_path, fe.sha256, 2, prog))
                 {
                     error = type + " download failed for " + fe.name;
                     return false;
@@ -166,12 +228,30 @@ bool download_action::resolve_entries(
                     ctx.logger->info(type + " " + fe.name + " archive cached");
             }
 
+            auto csum_path = (fs::path(extract_dir) / "predep.csum").string();
+            if (platform::file_exists(csum_path))
+            {
+                bool match = fe.sha256.empty();
+                if (!fe.sha256.empty())
+                {
+                    std::ifstream f(csum_path);
+                    std::string stored;
+                    std::getline(f, stored);
+                    match = (stored == fe.sha256);
+                }
+                if (match)
+                {
+                    ctx.logger->info(type + " " + fe.name + " extracted cached");
+                    continue;
+                }
+            }
+
             fs::create_directories(extract_dir);
             bool ok = false;
             if (rv.fname.ends_with(".tar.gz") || rv.fname.ends_with(".tgz"))
-                ok = extract::tar_gz(archive_path, extract_dir);
+                ok = extract::tar_gz(archive_path, extract_dir, fe.include, fe.exclude);
             else if (rv.fname.ends_with(".zip"))
-                ok = extract::zip(archive_path, extract_dir);
+                ok = extract::zip(archive_path, extract_dir, fe.include, fe.exclude);
             else
                 ok = true;
 
@@ -195,23 +275,32 @@ bool download_action::resolve_entries(
                 }
                 if (n == 1 && !root.empty())
                 {
-                    auto src = extract_dir + "/" + root;
+                    auto src = (fs::path(extract_dir) / root).string();
                     for (auto &e : fs::directory_iterator(src))
                     {
                         auto name = e.path().filename().string();
-                        auto dst = extract_dir + "/" + name;
+                        auto dst = (fs::path(extract_dir) / name).string();
                         fs::remove_all(dst);
                         fs::rename(e.path(), dst);
                     }
                     fs::remove_all(src);
                 }
             }
+
+            // TODO: on sha256 mismatch, delete extract_dir before re-extracting
+            {
+                std::ofstream f(csum_path);
+                if (!fe.sha256.empty())
+                    f << fe.sha256 << "\n";
+                else
+                    f << platform::file_hash(archive_path) << "\n";
+            }
         }
         else
         {
             auto dest_path = fe.create_directory
-                ? rv.base + "/" + fe.name + "/" + rv.fname
-                : rv.base + "/" + rv.fname;
+                ? (fs::path(rv.base) / fe.name / rv.fname).string()
+                : (fs::path(rv.base) / rv.fname).string();
 
             auto parent = fs::path(dest_path).parent_path();
             fs::create_directories(parent);
@@ -232,7 +321,9 @@ bool download_action::resolve_entries(
 
             ctx.logger->info("Downloading " + type + " " + fe.name + " from " + rv.url);
 
-            if (!download::download_verify(rv.url, dest_path, fe.sha256))
+            auto prog = [&, label = std::string(fe.name)](size_t dl, size_t total)
+                { show_progress(label, dl, total); };
+            if (!download::download_verify(rv.url, dest_path, fe.sha256, 2, prog))
             {
                 error = type + " download failed for " + fe.name;
                 return false;
@@ -240,7 +331,7 @@ bool download_action::resolve_entries(
 
             if (rv.output_name != fe.name)
             {
-                auto dst = rv.base + "/" + rv.output_name;
+                auto dst = (fs::path(rv.base) / rv.output_name).string();
                 if (!fs::exists(dst))
                     fs::rename(dest_path, dst);
             }

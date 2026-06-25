@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <iostream>
 
+namespace fs = std::filesystem;
+
 bool run_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 {
     (void)sd;
@@ -69,12 +71,12 @@ bool run_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     if (!security::confirm_build_context(sd, bc, cwd, ctx, error))
         return false;
 
-    auto bin_dir = ctx.cache_dir + "/bin";
+    auto bin_dir = (fs::path(ctx.cache_dir) / "bin").string();
     for (auto &cmd : cmds)
     {
         ctx.logger->info(cmd);
         auto path_cmd = "PATH=" + bin_dir + ":$PATH " + cmd;
-        auto res = process::run_with_err(process::shell(), {process::shell_cmd_flag(), path_cmd}, cwd);
+        auto res = process::run_with_err(process::shell(), std::vector<std::string>{process::shell_cmd_flag(), path_cmd}, cwd);
         if (res.code != 0)
         {
             if (!res.err.empty())

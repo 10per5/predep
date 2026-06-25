@@ -84,13 +84,14 @@ bool sha256_verify(const std::string &path, const std::string &expected)
 }
 
 bool download_verify(const std::string &url, const std::string &dest,
-                     const std::string &expected_hash, int retries)
+                     const std::string &expected_hash, int retries,
+                     std::function<void(size_t, size_t)> progress)
 {
     for (int attempt = 0; attempt <= retries; attempt++)
     {
         if (expected_hash.empty())
         {
-            if (!http_get(url, dest))
+            if (!http_get(url, dest, progress))
             {
                 if (attempt < retries)
                 {
@@ -108,7 +109,7 @@ bool download_verify(const std::string &url, const std::string &dest,
         }
 
         auto part = dest + ".part";
-        if (!http_get(url, part))
+        if (!http_get(url, part, progress))
         {
             fs::remove(part);
             if (attempt < retries)
@@ -122,8 +123,13 @@ bool download_verify(const std::string &url, const std::string &dest,
 
         if (!sha256_verify(part, expected_hash))
         {
-            fs::remove(part);
+            auto actual = platform::file_hash(part);
             std::cerr << "  ERROR: SHA256 mismatch for " << dest << "\n";
+            if (!actual.empty())
+                std::cerr << "    expected: " << expected_hash << "\n"
+                          << "    actual:   " << actual << "\n"
+                          << "    WARNING: verify the download source before updating SHA256\n";
+            fs::remove(part);
             return false;
         }
 

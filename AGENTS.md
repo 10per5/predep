@@ -343,8 +343,9 @@ Two `premake5.lua` files provide project-specific actions:
   and vars. No global state between stages.
 - **Config is the source of truth.** Everything resolvable goes in TOML.
   CLI flags control _how_ to resolve, not _what_ to resolve.
-- **Forward slashes everywhere.** Even on Windows. `cmd.exe` accepts them,
-  and C++17 filesystem normalizes for the platform.
+- **Use `fs::path::operator/` for path construction.** This uses the platform's
+  native separator (`\` on Windows, `/` on Unix). Never hardcode `/` or `\\` in
+  path strings — always use `fs::path` concatenation.
 
 ## Enums
 

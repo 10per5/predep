@@ -35,7 +35,7 @@ std::string find_config(const std::string &root, Logger &logger)
 {
     for (auto &name : {"predep.toml", "predep.lua"})
     {
-        auto path = root + "/" + name;
+        auto path = (fs::path(root) / name).string();
         if (platform::file_exists(path))
         {
             logger.info("using config: " + path);

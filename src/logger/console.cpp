@@ -1,9 +1,13 @@
 #include "logger/console.h"
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 
 #ifdef _WIN32
   #include <windows.h>
+  #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+  #endif
 #else
   #include <unistd.h>
 #endif
@@ -15,7 +19,12 @@ bool is_tty()
 #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
     DWORD mode = 0;
-    return h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode);
+    if (h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode))
+        return true;
+    // Fallback: TERM indicates an ANSI-capable terminal
+    // (Git Bash sets TERM=cygwin, WSL sets TERM=xterm-256color, etc.)
+    const char *term = std::getenv("TERM");
+    return term && *term && std::strcmp(term, "dumb") != 0;
 #else
     return isatty(STDERR_FILENO);
 #endif
@@ -25,7 +34,28 @@ bool wants_color()
 {
     if (std::getenv("NO_COLOR"))
         return false;
+
+#ifdef _WIN32
+    // Enable virtual terminal processing so ANSI escape codes work
+    // in modern Windows consoles (10+) natively
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        DWORD mode = 0;
+        if (GetConsoleMode(h, &mode))
+        {
+            SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            return true;
+        }
+    }
+    // Fallback: check TERM for ANSI-capable terminal (Git Bash, etc.)
+    const char *term = std::getenv("TERM");
+    if (term && *term && std::strcmp(term, "dumb") != 0)
+        return true;
+    return false;
+#else
     return is_tty();
+#endif
 }
 
 std::ostream &stream()

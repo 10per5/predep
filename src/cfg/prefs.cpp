@@ -16,12 +16,12 @@ namespace prefs {
 
 static std::string prefs_dir()
 {
-    return platform::cache_dir() + "/preferences";
+    return (fs::path(platform::cache_dir()) / "preferences").string();
 }
 
 std::string prefs_path()
 {
-    return prefs_dir() + "/trusted.toml";
+    return (fs::path(prefs_dir()) / "trusted.toml").string();
 }
 
 static std::vector<trusted_entry> &trusted_cache()
@@ -89,7 +89,13 @@ static void flush()
         {
             f << "paths = [\n";
             for (auto &p : e.paths)
-                f << "    \"" << p << "\",\n";
+            {
+                auto escaped = p;
+                for (auto i = escaped.find('\\'); i != std::string::npos;
+                     i = escaped.find('\\', i + 2))
+                    escaped.replace(i, 1, "\\\\");
+                f << "    \"" << escaped << "\",\n";
+            }
             f << "]\n";
         }
         f << "\n";

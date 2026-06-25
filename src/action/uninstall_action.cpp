@@ -172,7 +172,7 @@ bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         return false;
     }
 
-    auto manifest_path = install_dir + "/" + path::manifest;
+    auto manifest_path = (fs::path(install_dir) / path::manifest).string();
     std::ifstream ifs(manifest_path);
     if (!ifs)
     {
@@ -187,7 +187,7 @@ bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             continue;
         char marker = line[0];
         auto rel = line.substr(2);
-        auto dst = install_dir + "/" + rel;
+        auto dst = (fs::path(install_dir) / rel).string();
 
         if (marker == 'U')
         {
@@ -217,7 +217,7 @@ bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     // Clean up empty ancestors of each root artifact parent
     for (auto &art : artifacts)
     {
-        auto parent = fs::path(install_dir + "/" + art.dest).parent_path();
+        auto parent = (fs::path(install_dir) / art.dest).parent_path();
         while (parent != install_dir && parent.has_parent_path())
         {
             std::error_code ec;
@@ -279,7 +279,7 @@ bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         }
         if (!ec && only_manifest && !is_system_dir(install_dir))
         {
-            remove_with_sudo(install_dir + "/" + path::manifest, ctx.logger);
+            remove_with_sudo((fs::path(install_dir) / path::manifest).string(), ctx.logger);
             remove_with_sudo(install_dir, ctx.logger);
             if (ctx.logger && !fs::exists(install_dir))
                 ctx.logger->info("  removed " + install_dir);

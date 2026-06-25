@@ -45,7 +45,7 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     for (auto &art : pkg->artifacts)
     {
         auto src = ctx.resolve_path(art.source);
-        auto dst = dist + "/" + art.dest;
+        auto dst = (fs::path(dist) / art.dest).string();
 
         if (!fs::exists(src))
         {
@@ -82,7 +82,7 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             for (auto &entry : fs::recursive_directory_iterator(src))
             {
                 auto rel = fs::relative(entry.path(), src);
-                auto target = dst_dir + "/" + rel.string();
+                auto target = (fs::path(dst_dir) / rel).string();
                 if (entry.is_directory())
                     fs::create_directories(target);
                 else
@@ -106,7 +106,7 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     if (bundle != dirname)
     {
-        auto bundled = parent + "/" + bundle;
+        auto bundled = (fs::path(parent) / bundle).string();
         if (fs::exists(bundled))
             fs::remove_all(bundled);
         fs::rename(dist, bundled);
@@ -114,7 +114,7 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         dirname = bundle;
     }
 
-    std::string archive_path = parent + "/" + bundle;
+    auto archive_path = (fs::path(parent) / bundle).string();
 
     if (fmt == "zip")
     {

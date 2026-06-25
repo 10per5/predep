@@ -17,7 +17,9 @@ static bool check_tool(const std::string &name)
     return rc == 0;
 }
 
-bool tar_gz(const std::string &archive, const std::string &dest_dir)
+bool tar_gz(const std::string &archive, const std::string &dest_dir,
+            const std::vector<std::string> &include,
+            const std::vector<std::string> &exclude)
 {
     if (!check_tool("tar"))
     {
@@ -25,10 +27,17 @@ bool tar_gz(const std::string &archive, const std::string &dest_dir)
         return false;
     }
     fs::create_directories(dest_dir);
-    return process::run("tar", {"-xzf", archive, "-C", dest_dir}) == 0;
+    std::vector<std::string> args = {"-xzf", archive, "-C", dest_dir};
+    for (auto &inc : include)
+        args.push_back("--include=" + inc);
+    for (auto &exc : exclude)
+        args.push_back("--exclude=" + exc);
+    return process::run("tar", args) == 0;
 }
 
-bool zip(const std::string &archive, const std::string &dest_dir)
+bool zip(const std::string &archive, const std::string &dest_dir,
+         const std::vector<std::string> &include,
+         const std::vector<std::string> &exclude)
 {
     fs::create_directories(dest_dir);
 #ifdef _WIN32
@@ -45,7 +54,16 @@ bool zip(const std::string &archive, const std::string &dest_dir)
         std::cerr << "error: 'unzip' not found — install unzip (apt install unzip, brew install unzip)\n";
         return false;
     }
-    return process::run("unzip", {"-q", "-o", archive, "-d", dest_dir}) == 0;
+    std::vector<std::string> args = {"-q", "-o", archive, "-d", dest_dir};
+    for (auto &inc : include)
+        args.push_back(inc);
+    if (!exclude.empty())
+    {
+        args.push_back("-x");
+        for (auto &exc : exclude)
+            args.push_back(exc);
+    }
+    return process::run("unzip", args) == 0;
 #endif
 }
 

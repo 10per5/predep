@@ -38,7 +38,7 @@ std::string which(const std::string &cmd)
 
     auto with_ext = [&](const std::string &d)
     {
-        auto full = d + "/" + cmd;
+        auto full = (fs::path(d) / cmd).string();
         if (fs::exists(full) && access(full.c_str(), X_OK) == 0)
             return fs::canonical(full).string();
         return std::string{};
@@ -193,8 +193,14 @@ platform_type current_platform()
 
 platform_type from_string(const std::string &s)
 {
-    if (s == "windows") return platform_type::windows;
-    if (s == "darwin")  return platform_type::darwin;
+    auto lower = s;
+    for (auto &c : lower) c = static_cast<char>(std::tolower(c));
+    if (lower == "windows" || lower == "win32" || lower == "win64" || lower == "win")
+        return platform_type::windows;
+    if (lower == "darwin" || lower == "macos" || lower == "osx" || lower == "mac")
+        return platform_type::darwin;
+    if (lower == "linux")
+        return platform_type::linux;
     return platform_type::linux;
 }
 

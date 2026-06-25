@@ -2,6 +2,8 @@
 
 #include <string>
 
+inline const std::string PREDEP_VERSION = "v0.0.1p5";
+
 // ---- Safety levels for prompting ----
 
 enum class safety_level { safe, warning, dangerous, critical };

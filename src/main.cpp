@@ -6,6 +6,7 @@
 #include "security/security.h"
 #include "sys/platform.h"
 #include "data/stage.h"
+#include "data/const.h"
 #include <functional>
 #include <iostream>
 #include <string>
@@ -13,6 +14,13 @@
 int main(int argc, char **argv)
 {
     auto args = parse_args(argc, argv);
+
+    if (args.version)
+    {
+        std::cout << PREDEP_VERSION << "\n";
+        return 0;
+    }
+
     auto logger = make_logger(args.format, args.debug);
     auto prompter = make_prompter(args.privileged);
 

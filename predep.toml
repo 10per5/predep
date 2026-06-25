@@ -39,9 +39,14 @@ recipe = "images/linux.Dockerfile"
 target = "/src/predep/bin/predep"
 dest = "root://bin/"
 
-[platform.win32]
+[platform.win32.stage.docker]
 recipe = "images/win32.Dockerfile"
 target = "/src/predep/bin/predep.exe"
+dest = "root://bin/"
+
+[platform.darwin.stage.docker]
+recipe = "images/darwin.Dockerfile"
+target = "/src/predep/bin/predep"
 dest = "root://bin/"
 
 [install]

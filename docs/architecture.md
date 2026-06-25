@@ -189,8 +189,9 @@ between the config layer, the resolver, and all action handlers.
 - Cache directory is resolved per-platform convention
 - Shell command detection: `cmd /c` on Windows, `/bin/sh -c` on Unix
 - Archive format: tar.gz on Unix, zip on Windows (both can be read)
-- Forward slashes in config files are accepted on all platforms (Windows
-  `cmd.exe` handles them, and `std::filesystem` normalizes at the C++ layer)
+- All paths use native separators: `fs::path::operator/` is used for
+  construction, and `fs::path::string()` returns the platform-native form
+  (`\` on Windows, `/` on Unix)
 
 ### Config portability
 - TOML manifests are platform-agnostic

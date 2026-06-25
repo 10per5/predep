@@ -3,6 +3,9 @@
 #include "sys/platform.h"
 #include "sys/process.h"
 #include <cstdlib>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 void binary_action::parse(config_node &cfg, binary_data &d)
 {
@@ -115,11 +118,11 @@ bool binary_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     std::vector<std::string> argv;
     build_argv(resolved, argv);
 
-    auto bin_dir = ctx.cache_dir + "/bin";
+    auto bin_dir = (fs::path(ctx.cache_dir) / "bin").string();
 
     // Check cache://bin first, then system PATH
     auto bin_name = platform::exe_name(d->binary_name);
-    auto path_cmd = bin_dir + "/" + bin_name;
+    auto path_cmd = (fs::path(bin_dir) / bin_name).string();
     auto code = process::run(path_cmd, argv, cwd);
     if (code == -1)
     {
