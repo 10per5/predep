@@ -28,10 +28,10 @@ bool tar_gz(const std::string &archive, const std::string &dest_dir,
     }
     fs::create_directories(dest_dir);
     std::vector<std::string> args = {"-xzf", archive, "-C", dest_dir};
-    for (auto &inc : include)
-        args.push_back("--include=" + inc);
     for (auto &exc : exclude)
         args.push_back("--exclude=" + exc);
+    for (auto &inc : include)
+        args.push_back(inc);
     return process::run("tar", args) == 0;
 }
 

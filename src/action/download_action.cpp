@@ -157,7 +157,7 @@ bool download_action::check_entries(
         if (fe.extract)
         {
             auto extract_dir = fe.create_directory ? (fs::path(rv.base) / fe.name).string() : rv.base;
-            auto csum_path = (fs::path(extract_dir) / "predep.csum").string();
+            auto csum_path = (fs::path(extract_dir) / (fe.name + ".predepsum")).string();
             if (platform::file_exists(csum_path))
             {
                 bool match = fe.sha256.empty();
@@ -230,7 +230,7 @@ bool download_action::resolve_entries(
                     ctx.logger->info(type + " " + fe.name + " archive cached");
             }
 
-            auto csum_path = (fs::path(extract_dir) / "predep.csum").string();
+            auto csum_path = (fs::path(extract_dir) / (fe.name + ".predepsum")).string();
             if (platform::file_exists(csum_path))
             {
                 bool match = fe.sha256.empty();
