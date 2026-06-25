@@ -11,16 +11,6 @@ void binary_action::parse(config_node &cfg, binary_data &d)
 {
     d.binary_name = cfg.get_string("binary");
 
-    // params: structured --key value pairs (DANGEROUS — no schema yet)
-    auto params_tbl = cfg.get_table("params");
-    if (params_tbl)
-    {
-        params_tbl.for_each([&](const std::string &k, const config_node &v)
-        {
-            d.defaults.params[k] = v.as_string();
-        });
-    }
-
     // args: free-form argv tokens (DANGEROUS — no structure)
     auto args_arr = cfg.get_array("args");
     for (auto &a : args_arr)

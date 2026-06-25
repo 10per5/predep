@@ -150,8 +150,9 @@ bool download_action::check_entries(
     const std::map<std::string, std::string> &stage_vars,
     const runtime &ctx) const
 {
-    for (auto &fe : d.entries)
+    for (auto &fe_orig : d.entries)
     {
+        auto fe = fe_orig.for_platform(ctx.platform);
         auto rv = resolve_entry(fe, stage_vars, ctx);
         if (fe.extract)
         {
@@ -193,8 +194,9 @@ bool download_action::resolve_entries(
     std::string &error,
     const std::string &type)
 {
-    for (auto &fe : d.entries)
+    for (auto &fe_orig : d.entries)
     {
+        auto fe = fe_orig.for_platform(ctx.platform);
         auto rv = resolve_entry(fe, stage_vars, ctx);
 
         if (fe.extract)

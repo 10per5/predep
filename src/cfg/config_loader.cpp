@@ -200,6 +200,24 @@ static void parse_stages(
             auto d = std::make_unique<binary_data>();
             binary_action::parse(elem, *d);
 
+            // Root-level [params.<type>.<name>] supplies structured params
+            auto params_root = root.get_table("params");
+            if (params_root)
+            {
+                auto type_params = params_root.get_table("binary");
+                if (type_params)
+                {
+                    auto stage_params = type_params.get_table(sd.name);
+                    if (stage_params)
+                    {
+                        stage_params.for_each([&](const std::string &k, const config_node &v)
+                        {
+                            d->defaults.params[k] = v.as_string();
+                        });
+                    }
+                }
+            }
+
             auto outs = elem.get_array("outputs");
             for (auto &out : outs)
                 d->outputs.push_back(out.as_string());
@@ -412,20 +430,24 @@ static void parse_stages(
                             if (fe.name != entry_name)
                                 continue;
 
+                            platform_entry<fetch_entry> pe;
                             auto url = ev.get_string("url");
-                            if (!url.empty()) fe.url = url;
+                            if (!url.empty()) pe.url = url;
                             auto sha256 = ev.get_string("sha256");
-                            if (!sha256.empty()) fe.sha256 = sha256;
+                            if (!sha256.empty()) pe.sha256 = sha256;
                             auto dest = ev.get_string("dest");
-                            if (!dest.empty()) fe.dest = dest;
+                            if (!dest.empty()) pe.dest = dest;
                             auto output_name = ev.get_string("output_name");
-                            if (!output_name.empty()) fe.output_name = output_name;
+                            if (!output_name.empty()) pe.output_name = output_name;
                             if (ev.has("extract"))
-                                fe.extract = ev.get_bool("extract");
+                                pe.extract = ev.get_bool("extract");
                             if (ev.has("create_directory"))
-                                fe.create_directory = ev.get_bool("create_directory");
+                                pe.create_directory = ev.get_bool("create_directory");
+                            // Note: extract/create_directory bool overrides only
+                            // work for true→false direction; false→true misses
+                            // due to plain bool default in platform_entry.
                             auto ver = ev.get_string("version");
-                            if (!ver.empty()) fe.vars["version"] = ver;
+                            if (!ver.empty()) pe.vars["version"] = ver;
 
                             auto vars_tbl = ev.get_table("variables");
                             if (vars_tbl)
@@ -433,9 +455,11 @@ static void parse_stages(
                                 vars_tbl.for_each([&](const std::string &vk, const config_node &vv)
                                 {
                                     if (vv.is_string())
-                                        fe.vars[vk] = vv.as_string();
+                                        pe.vars[vk] = vv.as_string();
                                 });
                             }
+
+                            fe.platform[pt] = std::move(pe);
                         }
                     }
                 });
@@ -470,7 +494,11 @@ static bool add_single_toml(
 
         std::vector<std::string> stage_names;
         auto root = config_node::parse_file(path);
-        parse_stages(stages, config_dir, path, root, &stage_names, engine_project);
+
+        // Use a temp map so include stages never overwrite parent stages
+        // with bare names before prefixing
+        std::unordered_map<std::string, stage_desc> tmp;
+        parse_stages(tmp, config_dir, path, root, &stage_names, engine_project);
 
         if (!prefix.empty() || !only.empty())
         {
@@ -478,17 +506,21 @@ static bool add_single_toml(
 
             for (auto &name : stage_names)
             {
+                auto it = tmp.find(name);
+                if (it == tmp.end())
+                    continue;
+
                 if (!only.empty() && std::find(only.begin(), only.end(), name) == only.end())
                 {
-                    stages.erase(name);
+                    tmp.erase(name);
                     continue;
                 }
 
                 if (!prefix.empty())
                 {
                     auto prefixed = prefix + "::" + name;
-                    stages[prefixed] = std::move(stages[name]);
-                    stages.erase(name);
+                    stages[prefixed] = std::move(it->second);
+                    tmp.erase(name);
 
                     for (auto &dep : stages[prefixed].depends)
                     {
@@ -498,6 +530,10 @@ static bool add_single_toml(
                 }
             }
         }
+
+        // Move remaining unprefixed stages into the parent map
+        for (auto &[n, sd] : tmp)
+            stages[n] = std::move(sd);
 
         config_dir = saved;
         return true;

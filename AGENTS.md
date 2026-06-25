@@ -9,32 +9,32 @@ you define in `predep.toml` determine what it does.
 
 ## Key Files
 
-| File                                      | Responsibility                                                                                                     |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `predep/src/main.cpp`                     | Entry point: parse args, find config, load engine, resolve stage                                                   |
-| `predep/src/cli/args.h/cpp`               | CLI argument parsing (CLI11)                                                                                       |
-| `predep/src/cli/discovery.h/cpp`          | `project_root()`, `find_config()` — project root discovery                                                         |
-| `predep/src/sys/platform.h/cpp`           | OS abstraction: file ops, arch detection, cache dirs, `exe_path()`                                                 |
-| `predep/src/sys/process.h/cpp`            | Subprocess execution                                                                                               |
-| `predep/src/sys/download.h/cpp`           | HTTP download with SHA256 verification                                                                             |
-| `predep/src/sys/extract.h/cpp`            | Archive extraction (tar.gz, zip)                                                                                   |
-| `predep/src/logger/logger.h/cpp`          | Logger base + ColorLogger/MonochromeLogger/MinifiedLogger/NullLogger + factory (color, levels, DI via runtime ctx) |
-| `predep/src/logger/prompter.h/cpp`        | Prompter base + InteractivePrompter/PrivilegedPrompter/NullPrompter + factory; user confirmation prompts               |
-| `predep/src/data/stage.h`                 | Data structures: `stage_desc`, `fetch_entry`, `runtime`, polymorphic `stage_data` subtypes                        |
-| `predep/src/data/const.h`                 | Path prefix constants (`root://`, `cache://`)                                                                      |
-| `predep/src/cfg/config.h/cpp`             | Format-agnostic config node abstraction (`config_node`)                                                            |
-| `predep/src/cfg/config_loader.h/cpp`      | TOML → `config_node`, include merging, `interpolate()`                                                             |
-| `predep/src/action/action.h`              | Base class: `is_resolved()`, `resolve()`, `check_outputs()`, `resolve_cwd()`                                      |
-| `predep/src/action/download_action.h/cpp` | Vendor/binary/resource download + extraction                                                                       |
-| `predep/src/action/run_action.h/cpp`      | Shell command execution                                                                                            |
-| `predep/src/action/docker_action.h/cpp`   | Docker build + cp                                                                                                  |
-| `predep/src/action/package_action.h/cpp`  | Artifact assembly + archiving                                                                                      |
-| `predep/src/action/install_action.h/cpp`  | Install artifacts to system prefix, with sudo escalation                                                           |
-| `predep/src/action/uninstall_action.h/cpp`| Remove installed artifacts, clean empty dirs                                                                       |
-| `predep/src/action/group_action.h/cpp`    | No-op stage (always resolved)                                                                                      |
-| `predep/src/engine/engine.h/cpp`          | Public API (`load_toml`, `resolve`, etc.) atop `config_loader` + `resolver`                                        |
-| `predep/src/engine/resolver.h/cpp`        | DAG traversal + action dispatch via `m_actions` map                                                                |
-| `predep/premake5.lua`                     | Build config for predep itself                                                                                     |
+| File                                       | Responsibility                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `predep/src/main.cpp`                      | Entry point: parse args, find config, load engine, resolve stage                                                   |
+| `predep/src/cli/args.h/cpp`                | CLI argument parsing (CLI11)                                                                                       |
+| `predep/src/cli/discovery.h/cpp`           | `project_root()`, `find_config()` — project root discovery                                                         |
+| `predep/src/sys/platform.h/cpp`            | OS abstraction: file ops, arch detection, cache dirs, `exe_path()`                                                 |
+| `predep/src/sys/process.h/cpp`             | Subprocess execution                                                                                               |
+| `predep/src/sys/download.h/cpp`            | HTTP download with SHA256 verification                                                                             |
+| `predep/src/sys/extract.h/cpp`             | Archive extraction (tar.gz, zip)                                                                                   |
+| `predep/src/logger/logger.h/cpp`           | Logger base + ColorLogger/MonochromeLogger/MinifiedLogger/NullLogger + factory (color, levels, DI via runtime ctx) |
+| `predep/src/logger/prompter.h/cpp`         | Prompter base + InteractivePrompter/PrivilegedPrompter/NullPrompter + factory; user confirmation prompts           |
+| `predep/src/data/stage.h`                  | Data structures: `stage_desc`, `fetch_entry`, `runtime`, polymorphic `stage_data` subtypes                         |
+| `predep/src/data/const.h`                  | Path prefix constants (`root://`, `cache://`)                                                                      |
+| `predep/src/cfg/config.h/cpp`              | Format-agnostic config node abstraction (`config_node`)                                                            |
+| `predep/src/cfg/config_loader.h/cpp`       | TOML → `config_node`, include merging, `interpolate()`                                                             |
+| `predep/src/action/action.h`               | Base class: `is_resolved()`, `resolve()`, `check_outputs()`, `resolve_cwd()`                                       |
+| `predep/src/action/download_action.h/cpp`  | Vendor/binary/resource download + extraction                                                                       |
+| `predep/src/action/run_action.h/cpp`       | Shell command execution                                                                                            |
+| `predep/src/action/docker_action.h/cpp`    | Docker build + cp                                                                                                  |
+| `predep/src/action/package_action.h/cpp`   | Artifact assembly + archiving                                                                                      |
+| `predep/src/action/install_action.h/cpp`   | Install artifacts to system prefix, with sudo escalation                                                           |
+| `predep/src/action/uninstall_action.h/cpp` | Remove installed artifacts, clean empty dirs                                                                       |
+| `predep/src/action/group_action.h/cpp`     | No-op stage (always resolved)                                                                                      |
+| `predep/src/engine/engine.h/cpp`           | Public API (`load_toml`, `resolve`, etc.) atop `config_loader` + `resolver`                                        |
+| `predep/src/engine/resolver.h/cpp`         | DAG traversal + action dispatch via `m_actions` map                                                                |
+| `predep/premake5.lua`                      | Build config for predep itself                                                                                     |
 
 ## Include & Namespacing
 
@@ -136,12 +136,12 @@ artifacts = [
 symlink = true
 ```
 
-| Field      | Default         | Description                                              |
-| ---------- | --------------- | -------------------------------------------------------- |
-| `depends`  | —               | Stage dependencies (e.g. `["build"]`)                    |
-| `dir`      | Platform-aware  | Install prefix (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`) |
-| `artifacts`| — (required)    | Array of `{ source, dest }` — source is project/cache path, dest is relative to install dir |
-| `symlink`  | `false`         | Create `/usr/local/bin/<project>` symlink pointing to the first artifact (Unix only, skipped when dir == `/usr/local/bin`) |
+| Field       | Default        | Description                                                                                                                |
+| ----------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `depends`   | —              | Stage dependencies (e.g. `["build"]`)                                                                                      |
+| `dir`       | Platform-aware | Install prefix (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`)                                             |
+| `artifacts` | — (required)   | Array of `{ source, dest }` — source is project/cache path, dest is relative to install dir                                |
+| `symlink`   | `false`        | Create `/usr/local/bin/<project>` symlink pointing to the first artifact (Unix only, skipped when dir == `/usr/local/bin`) |
 
 Platform overrides:
 
@@ -223,6 +223,7 @@ Future: binary metadata files will allow arg schema validation and
 per-arg danger-level tagging.
 
 **Security model:**
+
 - `params` (`--key value` pairs) — DANGEROUS (no schema yet, roadmap)
 - `args` (free-form argv tokens) — DANGEROUS (no validation)
 - Both are still safer than `run` stages: `execvp()` avoids shell
@@ -287,6 +288,7 @@ dest = "root://dist/"
 ```
 
 Valid values:
+
 - `"self"` (or empty) — use the stage's config directory (default)
 - `"parent"` — use the parent of the config directory
 - any relative path — resolved against the config directory
@@ -318,13 +320,19 @@ User interaction follows the same pattern as Logger: abstract base with
 implementations and a factory. `InteractivePrompter` checks for TTY, shows a
 formatted warning box on stderr, and reads confirmation from stdin.
 
-| Implementation       | Behavior                           |
-| -------------------- | ---------------------------------- |
-| `InteractivePrompter` | Shows warning box, reads stdin    |
-| `PrivilegedPrompter`   | Interactive prompt (used with `--privileged`) |
-| `NullPrompter`        | Auto-rejects (safe default)       |
+| Implementation        | Behavior                                      |
+| --------------------- | --------------------------------------------- |
+| `InteractivePrompter` | Shows warning box, reads stdin                |
+| `PrivilegedPrompter`  | Interactive prompt (used with `--privileged`) |
+| `NullPrompter`        | Auto-rejects (safe default)                   |
 
 The prompter is injected into `runtime` (like `Logger`).
+
+## Development Note
+
+This project is in develop-only mode — no compiler/build step needed during
+development. The Makefile and premake5.lua are provided for CI/release builds.
+Just implement changes; build verification happens separately.
 
 ## premake5.lua — Build
 
@@ -364,7 +372,7 @@ Used as map key for all platform-override lookups.
 enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, installed, uninstalled };
 ```
 
-+ `stage_from_string()`, `to_string()`. Replaces `std::string type` on `stage_desc`.
+- `stage_from_string()`, `to_string()`. Replaces `std::string type` on `stage_desc`.
 
 ## Data Model
 

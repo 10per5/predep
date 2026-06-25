@@ -19,6 +19,10 @@ enum class stage_type { vendor, fetch, resource, run, docker, premake5, package,
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
 
+// ---- Forward declarations ----
+
+template<typename T> struct platform_entry;
+
 // ---- Entry structs (pure data, shared for defaults and platform overrides) ----
 
 struct artifact_entry
@@ -41,6 +45,13 @@ struct fetch_entry
     std::vector<std::string> include;
     std::vector<std::string> exclude;
     std::map<std::string, std::string> vars;
+
+    // Per-platform overrides applied on top of defaults at resolution time.
+    std::map<platform_type, platform_entry<fetch_entry>> platform;
+
+    // Return a copy with platform overrides applied for the given platform.
+    // Defined out-of-line after platform_entry<T> is complete.
+    fetch_entry for_platform(platform_type pt) const;
 };
 
 struct run_entry
@@ -71,6 +82,26 @@ struct platform_entry : T
 {
     std::string build_context;   // empty = not set → use buildable_data default
 };
+
+// Out-of-line definition: fetch_entry::for_platform needs platform_entry<T> to be complete.
+inline fetch_entry fetch_entry::for_platform(platform_type pt) const
+{
+    auto pit = platform.find(pt);
+    if (pit == platform.end())
+        return *this;
+
+    auto r = *this;
+    auto &o = pit->second;
+    if (!o.url.empty())              r.url = o.url;
+    if (!o.sha256.empty())           r.sha256 = o.sha256;
+    if (!o.dest.empty())             r.dest = o.dest;
+    if (!o.output_name.empty())      r.output_name = o.output_name;
+    if (!o.include.empty())          r.include = o.include;
+    if (!o.exclude.empty())          r.exclude = o.exclude;
+    for (auto &[k, v] : o.vars)      r.vars[k] = v;
+    r.platform.clear();
+    return r;
+}
 
 // ---- Polymorphic dispatch base ----
 

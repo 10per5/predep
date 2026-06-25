@@ -7,9 +7,11 @@
 #include "sys/platform.h"
 #include "data/stage.h"
 #include "data/const.h"
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <string>
+#include <vector>
 
 int main(int argc, char **argv)
 {
@@ -73,9 +75,38 @@ int main(int argc, char **argv)
 
     if (args.list)
     {
+        auto names = eng.stage_names();
+        std::vector<std::string> root, ns_stages;
+        for (auto &n : names)
+        {
+            if (n.find("::") != std::string::npos)
+                ns_stages.push_back(n);
+            else
+                root.push_back(n);
+        }
+        std::sort(root.begin(), root.end());
+        std::sort(ns_stages.begin(), ns_stages.end());
+
         std::cout << "Available stages:\n";
-        for (auto &name : eng.stage_names())
-            std::cout << "  " << name << "\n";
+        for (auto &n : root)
+            std::cout << "  " << n << "\n";
+        if (!ns_stages.empty())
+        {
+            std::cout << "\n";
+            std::string cur_ns;
+            for (auto &n : ns_stages)
+            {
+                auto pos = n.find("::");
+                auto ns = n.substr(0, pos);
+                auto name = n.substr(pos + 2);
+                if (ns != cur_ns)
+                {
+                    cur_ns = ns;
+                    std::cout << "  [" << ns << "]\n";
+                }
+                std::cout << "    " << name << "\n";
+            }
+        }
         if (!main_name.empty())
             std::cout << "\nMain stage: " << main_name << "\n";
         return 0;
