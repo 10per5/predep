@@ -16,6 +16,7 @@ void package_action::parse(config_node &cfg, package_data &d)
         artifact_entry ae;
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
+        ae.binary = elem.get_bool("binary");
         if (ae.dest.empty())
         {
             auto slash = ae.source.rfind('/');
@@ -44,6 +45,11 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     for (auto &art : pkg->artifacts)
     {
+        if (ctx.platform == platform_type::windows && art.binary)
+        {
+            art.source += ".exe";
+            art.dest += ".exe";
+        }
         auto src = ctx.resolve_path(art.source);
         auto dst = (fs::path(dist) / art.dest).string();
 

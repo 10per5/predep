@@ -211,6 +211,7 @@ void install_action::parse(config_node &cfg, install_data &d)
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
         ae.userdir = elem.get_bool("userdir");
+        ae.binary = elem.get_bool("binary");
         d.defaults.artifacts.push_back(ae);
     }
 
@@ -309,6 +310,11 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     for (auto &art : artifacts)
     {
+        if (ctx.platform == platform_type::windows && art.binary)
+        {
+            art.source += ".exe";
+            art.dest += ".exe";
+        }
         auto src = ctx.resolve_path(art.source);
         auto dst = (fs::path(install_dir) / art.dest).string();
 

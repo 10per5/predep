@@ -30,6 +30,7 @@ struct artifact_entry
     std::string source;
     std::string dest;
     bool userdir = false;
+    bool binary = false;
 };
 
 struct fetch_entry
