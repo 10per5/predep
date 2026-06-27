@@ -4,8 +4,8 @@
 > audit capabilities are planned for future releases.
 
 A cross-platform stage processor: reads a declarative TOML manifest, resolves
-stages and their dependencies in order, and produces artifacts. Used by the
-[predoc](https://github.com/10per5/predoc) project.
+stages and their dependencies in order, and produces artifacts. Used by
+[predoc](https://github.com/10per5/predoc).
 
 ## Quick Start
 
