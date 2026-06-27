@@ -110,6 +110,8 @@ bool package_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto dirname = fs::path(dist).filename().string();
     auto bundle = pkg->bundle.empty() ? dirname : pkg->bundle;
 
+    bundle += "-" + ctx.target_os + "-" + platform::arch();
+
     if (bundle != dirname)
     {
         auto bundled = (fs::path(parent) / bundle).string();
