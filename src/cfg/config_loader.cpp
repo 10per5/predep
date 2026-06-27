@@ -360,6 +360,8 @@ static void parse_stages(
                             if (!tgt.empty()) pe.target = tgt;
                             auto proj = sv.get_string("project");
                             if (!proj.empty()) pe.project = proj;
+                            auto cfg_val = sv.get_string("config");
+                            if (!cfg_val.empty()) pe.config = cfg_val;
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;

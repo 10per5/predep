@@ -74,6 +74,7 @@ struct premake5_entry
     std::optional<bool> strip = true;
     std::string target;
     std::string project;
+    std::string config;
 };
 
 // ---- Platform entry template (adds build_context override to any entry type) ----

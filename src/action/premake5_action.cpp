@@ -15,6 +15,7 @@ void premake5_action::parse(config_node &cfg, premake5_data &d)
     d.defaults.strip = cfg.get_bool("strip", true);
     d.defaults.target = cfg.get_string("target");
     d.defaults.project = cfg.get_string("project");
+    d.defaults.config = cfg.get_string("config");
 
     auto plat = cfg.get_table("platform");
     if (!plat)
@@ -33,6 +34,8 @@ void premake5_action::parse(config_node &cfg, premake5_data &d)
         if (!tgt.empty()) pe.target = tgt;
         auto proj = val.get_string("project");
         if (!proj.empty()) pe.project = proj;
+        auto cfg_val = val.get_string("config");
+        if (!cfg_val.empty()) pe.config = cfg_val;
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);
@@ -61,6 +64,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto make = d->defaults.make;
     auto strip = d->defaults.strip;
     auto target = d->defaults.target;
+    auto config = d->defaults.config;
 
     auto pit = d->platform.find(ctx.platform);
     bool has_plat = pit != d->platform.end();
@@ -72,6 +76,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         if (p.make.has_value()) make = p.make;
         if (p.strip.has_value()) strip = p.strip;
         if (!p.target.empty()) target = p.target;
+        if (!p.config.empty()) config = p.config;
     }
 
     if (!security::confirm_build_context(sd, d->build_context, "", ctx, error))
@@ -105,9 +110,17 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     {
         std::string build_cmd;
         if (ctx.platform == platform_type::windows && !project.empty())
-            build_cmd = "msbuild " + project + ".sln /p:Configuration=Release";
+        {
+            build_cmd = "msbuild " + project + ".sln";
+            if (!config.empty())
+                build_cmd += " /p:Configuration=" + config;
+        }
         else
-            build_cmd = "make config=release -j$(nproc)";
+        {
+            build_cmd = "make -j$(nproc)";
+            if (!config.empty())
+                build_cmd = "make config=" + config + " -j$(nproc)";
+        }
 
         ctx.logger->info(build_cmd);
         auto path_cmd = "PATH=" + bin_dir + ":$PATH " + build_cmd;
