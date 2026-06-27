@@ -253,6 +253,8 @@ int run(const std::string &cmd, const std::vector<std::string> &args,
         if (!cwd.empty())
             chdir(cwd.c_str());
         execvp(cmd.c_str(), const_cast<char *const *>(argv.data()));
+        auto errmsg = std::string("execvp: ") + strerror(errno);
+        write(STDERR_FILENO, errmsg.c_str(), errmsg.size());
         _exit(127);
     }
 
@@ -289,6 +291,10 @@ run_result run_with_err(const std::string &cmd, const std::vector<std::string> &
         if (!cwd.empty())
             chdir(cwd.c_str());
         execvp(cmd.c_str(), const_cast<char *const *>(argv.data()));
+        {
+            auto errmsg = std::string("execvp: ") + strerror(errno);
+            write(err_pipe[1], errmsg.c_str(), errmsg.size());
+        }
         _exit(127);
     }
 
