@@ -4,6 +4,8 @@
 
 enum class platform_type { linux, darwin, windows };
 
+enum class line_ending { raw, lf, crlf };
+
 namespace platform {
 
 platform_type current_platform();
@@ -18,6 +20,7 @@ std::string exe_path();
 std::string cache_dir();
 bool file_exists(const std::string &path);
 bool dir_exists(const std::string &path);
-std::string file_hash(const std::string &path);
+std::string file_hash(const std::string &path, line_ending le = line_ending::raw);
+bool file_hash_normalize(const std::string &path, const std::string &expected);
 
 }

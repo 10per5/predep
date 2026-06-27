@@ -132,7 +132,7 @@ bool security::check_path_safety(
             error = "Failed to hash: " + main_cfg;
             return false;
         }
-        if (main_sha != ctx.config_sha)
+        if (main_sha != ctx.config_sha && !platform::file_hash_normalize(main_cfg, ctx.config_sha))
         {
             error = "Config SHA does not match --privileged argument.\n"
                     "  Provided: " + ctx.config_sha + "\n"

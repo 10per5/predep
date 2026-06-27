@@ -138,7 +138,7 @@ bool dir_exists(const std::string &path)
     return fs::exists(path) && fs::is_directory(path);
 }
 
-std::string file_hash(const std::string &path)
+std::string file_hash(const std::string &path, line_ending le)
 {
     std::ifstream file(path, std::ios::binary);
     if (!file)
@@ -154,9 +154,42 @@ std::string file_hash(const std::string &path)
         return {};
     }
 
-    char buf[8192];
-    while (file.read(buf, sizeof(buf)) || file.gcount() > 0)
-        EVP_DigestUpdate(ctx, buf, file.gcount());
+    if (le == line_ending::raw)
+    {
+        char buf[8192];
+        while (file.read(buf, sizeof(buf)) || file.gcount() > 0)
+            EVP_DigestUpdate(ctx, buf, file.gcount());
+    }
+    else
+    {
+        std::string content((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+
+        if (le == line_ending::lf)
+        {
+            std::string norm;
+            norm.reserve(content.size());
+            for (size_t i = 0; i < content.size(); i++)
+            {
+                if (content[i] == '\r' && i + 1 < content.size() && content[i + 1] == '\n')
+                    continue;
+                norm += content[i];
+            }
+            EVP_DigestUpdate(ctx, norm.data(), norm.size());
+        }
+        else
+        {
+            std::string norm;
+            norm.reserve(content.size() + content.size() / 2);
+            for (size_t i = 0; i < content.size(); i++)
+            {
+                if (content[i] == '\n' && (i == 0 || content[i - 1] != '\r'))
+                    norm += '\r';
+                norm += content[i];
+            }
+            EVP_DigestUpdate(ctx, norm.data(), norm.size());
+        }
+    }
 
     unsigned char hash[EVP_MAX_MD_SIZE];
     unsigned int hash_len = 0;
@@ -168,15 +201,23 @@ std::string file_hash(const std::string &path)
 
     EVP_MD_CTX_free(ctx);
 
-    std::string result;
-    result.reserve(64);
+    static const char hex[] = "0123456789abcdef";
+    std::string result(64, '\0');
     for (unsigned int i = 0; i < hash_len; i++)
     {
-        char hex[3];
-        snprintf(hex, sizeof(hex), "%02x", hash[i]);
-        result += hex;
+        result[i * 2]     = hex[(hash[i] >> 4) & 0xF];
+        result[i * 2 + 1] = hex[hash[i] & 0xF];
     }
     return result;
+}
+
+bool file_hash_normalize(const std::string &path, const std::string &expected)
+{
+    if (file_hash(path, line_ending::lf) == expected)
+        return true;
+    if (file_hash(path, line_ending::crlf) == expected)
+        return true;
+    return false;
 }
 
 }
