@@ -6,7 +6,7 @@ weight: 56
 # Windows Sandbox Plan (Future)
 
 > This document describes the planned Windows sandbox integration (AppContainer).
-> Linux sandboxing (bwrap/landlock/seccomp) is documented in `docs/sandbox.md`.
+> Linux sandboxing (bwrap/landlock/seccomp) is documented in `docs/security/sandbox.md`.
 
 ## Backend: AppContainer (Windows 8+)
 

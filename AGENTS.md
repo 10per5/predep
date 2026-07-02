@@ -153,7 +153,7 @@ dir = "/opt/myapp"
 The install dir can be omitted entirely — the C++ action applies the correct
 default per-platform (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`).
 Artifacts are copied via `fs::copy()` with automatic `sudo cp` fallback when
-the destination requires elevated privileges. See [docs/security.md](docs/security.md)
+the destination requires elevated privileges. See [docs/security/security.md](docs/security/security.md)
 for the full sudo escalation model.
 
 ## Stage Types
@@ -229,7 +229,7 @@ per-arg danger-level tagging.
 - Both are still safer than `run` stages: `execvp()` avoids shell
   injection entirely (no `/bin/sh -c`, no `$()`, no backticks)
 - Cross-platform: `platform::exe_name()` auto-appends `.exe` on Windows
-- See [docs/security.md](docs/security.md) for full security model
+- See [docs/security/security.md](docs/security/security.md) for full security model
 
 ### `disabled` / missing type
 
@@ -285,7 +285,7 @@ Auto-generated from the root `[install]` config (not typically written as
 - `artifacts` array maps project/cache paths to destinations under the install dir
 - `symlink` creates `/usr/local/bin/<project>` pointing to the first artifact (Unix only, skipped when `dir == /usr/local/bin`)
 - Copy/remove operations fall back to `sudo` automatically when the destination requires elevated privileges
-- See [docs/security.md](docs/security.md) for the sudo escalation model
+- See [docs/security/security.md](docs/security/security.md) for the sudo escalation model
 
 ## build_context (All Stage Types)
 

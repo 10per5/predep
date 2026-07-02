@@ -218,7 +218,7 @@ same name from elsewhere on the system.
 
 Binary metadata files (`binaries/*.toml`) combine arg schema, safety tagging,
 and per-command sandbox defaults into a single profile per known binary.
-See `docs/sandbox.md` for the full design.
+See `sandbox.md` for the full design.
 
 ```toml
 [binary.hugo]
@@ -400,7 +400,7 @@ requested.
 Dangerous stages (`run`, `binary` with untrusted params) and general builds
 run in a sandboxed environment when `--sandbox` is passed. The sandbox uses
 a pluggable backend (bwrap → landlock → seccomp) to enforce filesystem,
-network, and capability restrictions. See `docs/sandbox.md` for the full
+network, and capability restrictions. See `sandbox.md` for the full
 architecture, backend reference, binary profiles, and implementation order.
 
 ## Comparison: `run` vs `binary`

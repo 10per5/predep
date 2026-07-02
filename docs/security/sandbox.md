@@ -23,7 +23,7 @@ A pluggable backend system, detected at runtime by availability:
 Detection order: `bwrap` → `landlock` → no sandbox (fallback with warning).
 Other platforms: no sandbox available, `--sandbox` warns and skips.
 
-> Windows sandboxing (AppContainer) is planned separately — see `roadmap/sandbox-win32.md`.
+> Windows sandboxing (AppContainer) is planned separately — see `../roadmap/sandbox-win32.md`.
 
 ## Privilege Dimensions
 
