@@ -60,9 +60,18 @@ recipe = "images/linux.Dockerfile"
 target = "/src/out/app"
 dest = "root://bin/"
 depends = ["vendor-sdl"]
+build_args = { SAUCER_BUILD_TYPE = "Debug" }
 ```
 
-Supports platform-specific recipe/target/dest overrides.
+| Field | Description |
+|-------|-------------|
+| `recipe` | Dockerfile path |
+| `target` | Path inside the container to copy out |
+| `dest` | Host destination for the copied artifact |
+| `build_args` | Table of `--build-arg` key/value pairs passed to `docker build` |
+
+Supports platform-specific recipe/target/dest overrides. `build_args` is
+stage-level only (not platform-overridable).
 
 ### When to use
 - Cross-compilation (e.g., building Windows binaries from Linux)

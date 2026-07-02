@@ -19,6 +19,15 @@ void docker_action::parse(config_node &cfg, docker_data &d)
     d.defaults.target = cfg.get_string("target");
     d.defaults.dest = cfg.get_string("dest");
 
+    auto build_args = cfg.get_table("build_args");
+    if (build_args)
+    {
+        build_args.for_each([&](const std::string &k, const config_node &v)
+        {
+            d.defaults.build_args[k] = v.as_string();
+        });
+    }
+
     auto plat = cfg.get_table("platform");
     if (!plat)
         return;
@@ -32,6 +41,15 @@ void docker_action::parse(config_node &cfg, docker_data &d)
         pe.target = val.get_string("target");
         pe.dest = val.get_string("dest");
         pe.build_context = val.get_string("build_context");
+
+        auto pa = val.get_table("build_args");
+        if (pa)
+        {
+            pa.for_each([&](const std::string &k, const config_node &v)
+            {
+                pe.build_args[k] = v.as_string();
+            });
+        }
 
         d.platform[pt] = std::move(pe);
     });
@@ -55,6 +73,13 @@ bool docker_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         ? pit->second.target : d->defaults.target;
     auto &dest = (has_plat && !pit->second.dest.empty())
         ? pit->second.dest : d->defaults.dest;
+
+    auto build_args = d->defaults.build_args;
+    if (has_plat)
+    {
+        for (auto &[k, v] : pit->second.build_args)
+            build_args[k] = v;
+    }
 
     if (ctx.logger)
         ctx.logger->info("Running (docker, recipe: " + recipe + ")");
@@ -80,8 +105,13 @@ bool docker_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto tag = sd.name;
     auto container = tag + "-tmp";
 
+    std::string build_cmd = "docker build";
+    for (auto &[k, v] : build_args)
+        build_cmd += " --build-arg " + k + "=" + v;
+    build_cmd += " -t " + tag + " -f " + rel_recipe + " .";
+
     std::vector<std::pair<std::string, std::string>> steps = {
-        {"docker build -t " + tag + " -f " + rel_recipe + " .", "docker build failed for " + sd.name},
+        {build_cmd, "docker build failed for " + sd.name},
         {"docker create --name " + container + " " + tag, "docker create failed for " + sd.name},
     };
 

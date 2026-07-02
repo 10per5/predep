@@ -66,6 +66,7 @@ struct docker_entry
     std::string recipe;
     std::string target;
     std::string dest;
+    std::map<std::string, std::string> build_args;
 };
 
 struct premake5_entry
