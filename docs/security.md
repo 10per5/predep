@@ -1,3 +1,8 @@
+---
+title: Security Model
+weight: 50
+---
+
 # Security Model
 
 predep's security model distinguishes three execution layers, each with
