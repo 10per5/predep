@@ -85,8 +85,8 @@ fetch_entry download_action::parse_entry(
     fe.url = elem.get_string("url");
     fe.dest = elem.get_string("dest", default_dest);
     fe.sha256 = elem.get_string("sha256");
-    fe.extract = elem.get_bool("extract");
-    fe.create_directory = elem.get_bool("create_directory");
+    fe.extract = elem.get_bool_flex("extract");
+    fe.create_directory = elem.get_bool_flex("create_directory");
     fe.output_name = elem.get_string("output_name");
 
     auto parse_str_or_arr = [&](const std::string &key, std::vector<std::string> &out)

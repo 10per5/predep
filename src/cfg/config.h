@@ -22,6 +22,8 @@ public:
     std::string get_string(const std::string &key,
                            const std::string &def = "") const;
     bool get_bool(const std::string &key, bool def = false) const;
+    // Accepts TOML boolean, integer 1/0, or string "true"/"false"/"1"/"0"
+    bool get_bool_flex(const std::string &key, bool def = false) const;
     std::int64_t get_int(const std::string &key, std::int64_t def = 0) const;
 
     std::vector<config_node> get_array(const std::string &key) const;

@@ -7,7 +7,7 @@ weight: 15
 
 ## Group
 
-A no-op stage — resolves instantly and only checks that all outputs exist.
+A no-op stage — resolves instantly and does nothing. Useful for naming a
 Useful for naming a collection of stages as a single command:
 
 ```toml
@@ -35,6 +35,35 @@ name = "placeholder"
 ### When to use
 - Placeholder stages for work-in-progress
 - Skipping a stage without deleting its definition
+
+## Clean
+
+Removes artifacts produced by target stages. Targets opt in via `clean = true`
+and can specify extra `clean_paths`. The clean stage itself accepts a `targets`
+array (stages whose artifacts to remove — not resolved as build dependencies)
+and a `paths` array for entries like `node_modules`.
+
+```toml
+[[stages]]
+name = "sdl"
+type = "vendor"
+url = "..."
+clean = true                      # opt in for collection
+clean_paths = ["root://vendor/sdl-cache"]
+
+[[stages]]
+name = "cleanup"
+type = "clean"
+targets = ["sdl"]
+paths = ["root://node_modules"]   # extra paths beyond target collection
+```
+
+Collected paths from each target (when `clean = true`):
+- `outputs` (all buildable types)
+- `clean_paths` (all buildable types)
+- `target` (premake5)
+- `dest` (docker)
+- artifact sources (package)
 
 ## Build context
 

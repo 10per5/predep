@@ -254,6 +254,28 @@ Copies artifacts into a dist directory and creates a compressed archive.
 - `bundle` field controls the output archive name (default: `release`)
 - `artifacts` array maps source paths to destinations within the archive
 
+### `clean`
+
+Removes artifacts produced by target stages. Targets opt in via `clean = true`
+and can specify extra `clean_paths`. The clean stage itself accepts a `targets`
+array (stages whose artifacts to remove — not resolved as build dependencies)
+and a `paths` array for extra entries (e.g. `node_modules`).
+
+```toml
+[[stages]]
+name = "sdl"
+type = "vendor"
+url = "..."
+clean = true
+clean_paths = ["root://vendor/sdl-cache"]
+
+[[stages]]
+name = "cleanup"
+type = "clean"
+targets = ["sdl"]
+paths = ["root://node_modules"]
+```
+
 ### `install` / `uninstall`
 
 Auto-generated from the root `[install]` config (not typically written as
@@ -369,7 +391,7 @@ Used as map key for all platform-override lookups.
 ### `stage_type` (`src/data/stage.h`)
 
 ```cpp
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, installed, uninstalled };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean };
 ```
 
 - `stage_from_string()`, `to_string()`. Replaces `std::string type` on `stage_desc`.
@@ -381,11 +403,12 @@ enum class stage_type { vendor, fetch, resource, run, docker, premake5, package,
 ```
 stage_data                    ← dispatch vtable only
 ├── download_data             ← fetch-type, assets, entries + vars
-├── buildable_data            ← outputs, build_context
+├── buildable_data            ← outputs, build_context, clean, clean_paths
 │   ├── run_data              ← commands
 │   ├── binary_data           ← binary name, args
 │   ├── docker_data           ← recipe, target, dest
 │   └── premake5_data         ← action, make, strip, target, project
+├── clean_data                ← targets, paths
 ├── package_data              ← artifacts, bundle
 └── group_data                ← empty
 ```

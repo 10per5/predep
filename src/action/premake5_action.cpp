@@ -11,8 +11,8 @@ namespace fs = std::filesystem;
 void premake5_action::parse(config_node &cfg, premake5_data &d)
 {
     d.defaults.action = cfg.get_string("action", "gmake");
-    d.defaults.make = cfg.get_bool("make", true);
-    d.defaults.strip = cfg.get_bool("strip", true);
+    d.defaults.make = cfg.get_bool_flex("make", true);
+    d.defaults.strip = cfg.get_bool_flex("strip", true);
     d.defaults.target = cfg.get_string("target");
     d.defaults.project = cfg.get_string("project");
     d.defaults.config = cfg.get_string("config");
@@ -28,8 +28,8 @@ void premake5_action::parse(config_node &cfg, premake5_data &d)
 
         auto act = val.get_string("action");
         if (!act.empty()) pe.action = act;
-        if (val.has("make")) pe.make = val.get_bool("make");
-        if (val.has("strip")) pe.strip = val.get_bool("strip");
+        if (val.has("make")) pe.make = val.get_bool_flex("make");
+        if (val.has("strip")) pe.strip = val.get_bool_flex("strip");
         auto tgt = val.get_string("target");
         if (!tgt.empty()) pe.target = tgt;
         auto proj = val.get_string("project");

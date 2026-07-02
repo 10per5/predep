@@ -85,12 +85,12 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
         artifact_entry ae;
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
-        ae.userdir = elem.get_bool("userdir");
+        ae.userdir = elem.get_bool_flex("userdir");
         d.defaults.artifacts.push_back(ae);
     }
 
     if (cfg.has("symlink"))
-        d.defaults.symlink = cfg.get_bool("symlink");
+        d.defaults.symlink = cfg.get_bool_flex("symlink");
 
     auto plat = cfg.get_table("platform");
     if (!plat)
@@ -110,11 +110,11 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
             artifact_entry ae;
             ae.source = elem.get_string("source");
             ae.dest = elem.get_string("dest");
-            ae.userdir = elem.get_bool("userdir");
+            ae.userdir = elem.get_bool_flex("userdir");
             pe.artifacts.push_back(ae);
         }
 
-        if (val.has("symlink")) pe.symlink = val.get_bool("symlink");
+        if (val.has("symlink")) pe.symlink = val.get_bool_flex("symlink");
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);

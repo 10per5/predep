@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class Logger;
@@ -14,7 +15,7 @@ class Prompter;
 
 // ---- Stage type enum ----
 
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean };
 
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
@@ -118,12 +119,16 @@ struct download_data : stage_data
     std::vector<std::string> assets;
     std::vector<fetch_entry> entries;
     std::map<std::string, std::string> vars;
+    bool clean = false;
+    std::vector<std::string> clean_paths;
 };
 
 struct buildable_data : stage_data
 {
     std::vector<std::string> outputs;
     std::string build_context;
+    bool clean = false;                       // opt-in for clean stage collection
+    std::vector<std::string> clean_paths;     // extra paths to clean beyond outputs
 };
 
 struct run_data : buildable_data
@@ -193,6 +198,12 @@ struct group_data : stage_data
 {
 };
 
+struct clean_data : stage_data
+{
+    std::vector<std::string> targets; // stages whose artifacts to clean (not resolved as deps)
+    std::vector<std::string> paths;   // extra paths to remove
+};
+
 // ---- Stage descriptor ----
 
 struct stage_desc
@@ -220,6 +231,10 @@ struct runtime
     std::string config_sha;
     Logger *logger = nullptr;
     Prompter *prompter = nullptr;
+
+    // Stage map for actions that need to inspect other stages (e.g. clean).
+    // Set by the resolver before dispatch.
+    const std::unordered_map<std::string, stage_desc> *stages = nullptr;
 
     std::string resolve_path(const std::string &path) const;
 };

@@ -28,6 +28,8 @@ type = "premake5"
 depends = ["vendor"]
 config = "release"
 outputs = ["root://bin/predep"]
+clean = true
+clean_paths = ["root://obj"]
 
 [[stages]]
 name = "docker"
@@ -35,6 +37,7 @@ description = "Build predep binary via Docker"
 type = "docker"
 depends = ["vendor"]
 outputs = ["root://bin/predep"]
+clean = true
 
 recipe = "images/linux.Dockerfile"
 target = "/src/predep/bin/predep"
@@ -49,6 +52,13 @@ dest = "root://bin/"
 recipe = "images/darwin.Dockerfile"
 target = "/src/predep/bin/predep"
 dest = "root://bin/"
+
+[[stages]]
+name = "clean"
+description = "Remove all build artifacts and vendor downloads"
+type = "clean"
+targets = ["vendor", "build", "docker"]
+paths = ["root://bin"]
 
 [install]
 depends = ["build"]

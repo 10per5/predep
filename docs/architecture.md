@@ -56,8 +56,9 @@ graph TB
    graph. Cycles are detected and rejected. Each stage is dispatched to its
    registered **action handler** by type.
 
-5. Each **action handler** checks whether outputs already exist (skip if so),
-   executes its work, and verifies declared outputs.
+5. Each **action handler** executes its work. An output-based skip-if-built
+   check and post-execution output verification are planned but not yet
+   implemented — currently every execution stage re-runs on every call.
 
 ## Dependencies
 

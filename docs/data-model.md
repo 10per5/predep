@@ -10,12 +10,15 @@ stage in order. Here is how resolution works at each level.
 
 ## Stage resolution
 
-1. Check if all `outputs` already exist — if so, the stage is skipped
-2. Resolve all transitive dependencies first (DAG walk with cycle detection)
-3. Resolve the working directory from `build_context`
-4. Merge platform overrides into stage defaults
-5. Run the stage action (download, execute commands, build Docker image, etc.)
-6. Verify declared outputs exist — error if missing
+1. Resolve all transitive dependencies first (DAG walk with cycle detection)
+2. Resolve the working directory from `build_context`
+3. Merge platform overrides into stage defaults
+4. Run the stage action (download, execute commands, build Docker image, etc.)
+
+> **Planned:** An output-based skip-if-built check and post-execution output
+> verification are on the roadmap. Currently every execution stage re-runs
+> on every call. The `outputs` field in stage definitions is reserved for
+> this future feature and already used by the premake5 strip step.
 
 ## Variable resolution
 

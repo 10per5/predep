@@ -7,6 +7,7 @@
 #include "action/package_action.h"
 #include "action/install_action.h"
 #include "action/uninstall_action.h"
+#include "action/clean_action.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -148,6 +149,11 @@ static void parse_stages(
                 });
             }
 
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
+
             sd.data = std::move(d);
         }
         else if (sd.type == stage_type::run)
@@ -159,6 +165,10 @@ static void parse_stages(
             for (auto &out : outs)
                 d->outputs.push_back(out.as_string());
             d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
 
             sd.data = std::move(d);
         }
@@ -174,6 +184,10 @@ static void parse_stages(
             for (auto &out : outs)
                 d->outputs.push_back(out.as_string());
             d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
 
             sd.data = std::move(d);
         }
@@ -186,6 +200,10 @@ static void parse_stages(
             for (auto &out : outs)
                 d->outputs.push_back(out.as_string());
             d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
 
             sd.data = std::move(d);
         }
@@ -222,7 +240,17 @@ static void parse_stages(
             for (auto &out : outs)
                 d->outputs.push_back(out.as_string());
             d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
 
+            sd.data = std::move(d);
+        }
+        else if (sd.type == stage_type::clean)
+        {
+            auto d = std::make_unique<clean_data>();
+            clean_action::parse(elem, *d);
             sd.data = std::move(d);
         }
         else if (sd.type == stage_type::disabled)
@@ -354,8 +382,8 @@ static void parse_stages(
                             platform_entry<premake5_entry> pe;
                             auto act = sv.get_string("action");
                             if (!act.empty()) pe.action = act;
-                            if (sv.has("make")) pe.make = sv.get_bool("make");
-                            if (sv.has("strip")) pe.strip = sv.get_bool("strip");
+                            if (sv.has("make")) pe.make = sv.get_bool_flex("make");
+                            if (sv.has("strip")) pe.strip = sv.get_bool_flex("strip");
                             auto tgt = sv.get_string("target");
                             if (!tgt.empty()) pe.target = tgt;
                             auto proj = sv.get_string("project");
@@ -379,10 +407,10 @@ static void parse_stages(
                                 artifact_entry ae;
                                 ae.source = elem.get_string("source");
                                 ae.dest = elem.get_string("dest");
-                                ae.userdir = elem.get_bool("userdir");
+                                ae.userdir = elem.get_bool_flex("userdir");
                                 pe.artifacts.push_back(ae);
                             }
-                            if (sv.has("symlink")) pe.symlink = sv.get_bool("symlink");
+                            if (sv.has("symlink")) pe.symlink = sv.get_bool_flex("symlink");
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
@@ -400,10 +428,10 @@ static void parse_stages(
                                 artifact_entry ae;
                                 ae.source = elem.get_string("source");
                                 ae.dest = elem.get_string("dest");
-                                ae.userdir = elem.get_bool("userdir");
+                                ae.userdir = elem.get_bool_flex("userdir");
                                 pe.artifacts.push_back(ae);
                             }
-                            if (sv.has("symlink")) pe.symlink = sv.get_bool("symlink");
+                            if (sv.has("symlink")) pe.symlink = sv.get_bool_flex("symlink");
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
@@ -442,9 +470,9 @@ static void parse_stages(
                             auto output_name = ev.get_string("output_name");
                             if (!output_name.empty()) pe.output_name = output_name;
                             if (ev.has("extract"))
-                                pe.extract = ev.get_bool("extract");
+                                pe.extract = ev.get_bool_flex("extract");
                             if (ev.has("create_directory"))
-                                pe.create_directory = ev.get_bool("create_directory");
+                                pe.create_directory = ev.get_bool_flex("create_directory");
                             // Note: extract/create_directory bool overrides only
                             // work for true→false direction; false→true misses
                             // due to plain bool default in platform_entry.
@@ -565,7 +593,7 @@ bool config_loader::load(const std::string &path)
     if (install_cfg)
     {
         auto install_dir = install_cfg.get_string("dir");
-        auto symlink = install_cfg.get_bool("symlink", false);
+        auto symlink = install_cfg.get_bool_flex("symlink", false);
 
         std::vector<artifact_entry> artifacts;
         auto art_arr = install_cfg.get_array("artifacts");

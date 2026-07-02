@@ -66,7 +66,7 @@ Each `[[stages]]` entry has these common fields:
 | `type` | Stage type (vendor, fetch, resource, run, binary, docker, premake5, package, group) |
 | `depends` | Array of stage dependencies (use `namespace::name` for cross-manifest) |
 | `description` | Optional human-readable label |
-| `outputs` | Array of expected output paths (when all exist, stage is skipped) |
+| `outputs` | Array of expected output paths (reserved for planned skip-if-built; currently used by premake5 strip step) |
 | `build_context` | Working directory: `"self"` (default), `"parent"`, or a relative path |
 
 Type-specific fields are documented in [stages/](stages/).
@@ -80,7 +80,8 @@ type = "premake5"
 outputs = ["root://bin/myapp"]
 ```
 
-When all `outputs` exist on disk, the stage is skipped on re-run.
+The `outputs` field is reserved for a planned skip-if-built feature.
+Currently used by the premake5 strip step (strips each output path).
 
 ## Platform overrides
 
