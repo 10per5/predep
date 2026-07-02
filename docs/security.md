@@ -214,26 +214,36 @@ projects vendor their own tooling without depending on globally installed
 binaries — and prevents accidentally running a different binary with the
 same name from elsewhere on the system.
 
-### Layer 4: Runtime arg validation (roadmap)
+### Layer 4: Binary profiles (roadmap)
 
-Future binary metadata files (defined outside C++ — e.g. `binaries/*.toml`)
-will enable per-argument safety tagging:
+Binary metadata files (`binaries/*.toml`) combine arg schema, safety tagging,
+and per-command sandbox defaults into a single profile per known binary.
+See `docs/sandbox.md` for the full design.
 
 ```toml
 [binary.hugo]
 description = "Static site generator"
 
-[binary.hugo.args.contentDir]
-type = "path"
-safety = "safe"
+  [binary.hugo.sandbox]
+  network = "loop"
+  read_only = ["root://"]
+  writable  = ["cache://temp"]
 
-[binary.hugo.args.rm]
-type = "flag"
-safety = "dangerous"
+  [binary.hugo.args.contentDir]
+  type = "path"
+  safety = "safe"
+
+  [binary.hugo.args.destination]
+  type = "path"
+  safety = "safe"
+
+  [binary.hugo.args.cleanDestinationDir]
+  type = "flag"
+  safety = "dangerous"
 ```
 
-Until this is implemented, all `params` and `args` on `binary` stages are
-treated as DANGEROUS:
+Until profiles are implemented, all `params` and `args` on `binary` stages
+are treated as DANGEROUS:
 
 | Field    | Structure             | Risk                                      |
 | -------- | --------------------- | ----------------------------------------- |
@@ -385,31 +395,13 @@ for cross-platform packaging or CI scenarios. The plain `sudo cp` mode
 stays as the portable fallback when no native backend is available or
 requested.
 
-## Sandboxing (future)
+## Sandboxing (planned)
 
 Dangerous stages (`run`, `binary` with untrusted params) and general builds
-should ideally run in a sandboxed environment. Currently, the only isolation
-mechanism is the `docker` stage type, which builds inside a container and
-copies out the target artifact. This provides filesystem isolation but does
-not enforce network or capability restrictions.
-
-Future versions may integrate additional sandboxing technologies:
-
-* **Bubblewrap / Firejail** — lightweight user-space sandboxing on Linux,
-  no root required
-
-* **cgroups / seccomp** — kernel-level resource limits and syscall filtering
-  for fine-grained permission control
-
-* **WebAssembly runtimes (Wasmtime / Wasmer)** — pure sandbox execution for
-  build steps that don't need native host access
-
-* **NsJail / container sandboxes** — alternative container runtimes with
-  stricter default profiles than Docker
-
-The sandbox abstraction will be designed as a pluggable backend, so the
-stage definition remains declarative and the user chooses the isolation
-level at runtime or in config.
+run in a sandboxed environment when `--sandbox` is passed. The sandbox uses
+a pluggable backend (bwrap → landlock → seccomp) to enforce filesystem,
+network, and capability restrictions. See `docs/sandbox.md` for the full
+architecture, backend reference, binary profiles, and implementation order.
 
 ## Comparison: `run` vs `binary`
 
