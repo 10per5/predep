@@ -249,9 +249,52 @@ void install_action::parse(config_node &cfg, install_data &d)
 
 bool install_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 {
-    (void)sd;
-    (void)ctx;
-    return false;
+    auto *d = dynamic_cast<install_data*>(sd.data.get());
+    if (!d)
+        return false;
+
+    auto dir = d->defaults.dir;
+    auto artifacts = d->defaults.artifacts;
+
+    auto pit = d->platform.find(ctx.platform);
+    if (pit != d->platform.end())
+    {
+        if (!pit->second.dir.empty()) dir = pit->second.dir;
+        if (!pit->second.artifacts.empty()) artifacts = pit->second.artifacts;
+    }
+
+    dir = effective_dir(dir, ctx.platform, ctx.project);
+    auto install_dir = ctx.resolve_path(dir);
+    if (install_dir.empty())
+        return false;
+
+    for (auto &art : artifacts)
+    {
+        auto src = art.source;
+        auto dst = art.dest;
+        if (ctx.platform == platform_type::windows && art.binary)
+        {
+            src += ".exe";
+            dst += ".exe";
+        }
+        auto resolved_src = ctx.resolve_path(src);
+        auto resolved_dst = (fs::path(install_dir) / dst).string();
+
+        if (!fs::exists(resolved_src) || fs::is_directory(resolved_src))
+            return false;
+
+        if (!fs::exists(resolved_dst))
+            return false;
+
+        auto src_hash = platform::file_hash(resolved_src);
+        auto dst_hash = platform::file_hash(resolved_dst);
+        if (src_hash.empty() || dst_hash.empty() || src_hash != dst_hash)
+            return false;
+    }
+
+    if (ctx.logger)
+        ctx.logger->info("  nothing to do — files already up to date");
+    return true;
 }
 
 bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
