@@ -106,7 +106,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     }
 
     // Make step (msbuild on Windows, make elsewhere)
-    if (make)
+    if (make.value_or(false))
     {
         std::string build_cmd;
         if (ctx.platform == platform_type::windows && !project.empty())
@@ -137,7 +137,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     }
 
     // Strip step
-    if (strip)
+    if (strip.value_or(false))
     {
         std::vector<std::string> strip_targets;
         if (!target.empty())
