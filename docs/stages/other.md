@@ -65,6 +65,63 @@ Collected paths from each target (when `clean = true`):
 - `dest` (docker)
 - artifact sources (package)
 
+## Copy
+
+Distributes local asset files from a source location into one or more
+destination paths. It validates that each source exists (failing the stage by
+default when one is missing), then `cp -f` each source into every destination,
+creating parent directories as needed. This replaces ad-hoc `init-assets`
+shell scripts that fan one image out across several project subtrees.
+
+```toml
+[[stages]]
+name = "init-assets"
+type = "copy"
+source_dir = "root://images"        # base dir for relative `source` paths
+fail_if_missing = true              # default; set false to skip missing sources
+files = [
+  { source = "favicon.ico",   dests = [
+      "root://editor/public/favicon.ico",
+      "root://hugo-view/static/favicon.ico",
+      "root://gui/bin/icon.ico",
+  ] },
+  { source = "inb4doc-64.png", dests = [
+      "root://hugo-view/static/favicon.png",
+      "root://gui/bin/icon.png",
+  ] },
+]
+```
+
+### Path confinement (Layer 6)
+
+All `source` and `dest` paths are confined to the **project root** (`root://`):
+
+- Paths **must** resolve within `root://`. Unprefixed paths are anchored to the
+  project root (or `source_dir` for sources) and are accepted only when they
+  stay within it.
+- `cache://` is **never** allowed for copy stages — neither for sources nor
+  destinations.
+- Paths that escape the project root are rejected.
+- This confinement is a hard config error and **cannot** be bypassed with
+  `--privileged` (unlike fetch/install which may target cache or system dirs).
+
+### Fields
+
+| Field | Default | Description |
+| ----- | ------- | ----------- |
+| `source_dir` | — | Optional base directory (must be `root://`); relative `source` paths resolve against it. |
+| `fail_if_missing` | `true` | When `true`, a missing source fails the stage; when `false`, it is skipped with a warning. |
+| `files` | — (required) | Array of `{ source, dests }` tables. Each `source` is copied to every path in `dests`. |
+
+The stage is idempotent: it is considered already resolved when every
+destination exists with content matching its source, so re-running a resolved
+stage is a no-op.
+
+### When to use
+- Fanning a small set of icons/images out into multiple consumer subtrees
+- Populating git-ignored directories (e.g. `public/`, `bin/`) from a tracked `images/`
+- Any "copy these local files into place" prep step that does not need shell logic
+
 ## Build context
 
 Every stage can set `build_context` to control the working directory:

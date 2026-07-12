@@ -19,6 +19,7 @@ different guarantees and risk levels.
 | `docker`                    | Docker CLI                  | No (arg-based) | NORMAL                              |
 | `group`                     | None (no-op)                | —              | SAFE                                |
 | `package`                   | None (file ops)             | —              | SAFE                                |
+| `copy`                     | None (file ops)             | —              | SAFE — root:// only, no cache://   |
 | `install`                   | None (file ops) / `sudo cp` | No             | NORMAL — file ops, sudo escalation  |
 | `uninstall`                 | None (file ops) / `sudo rm` | No             | NORMAL — file ops, sudo escalation  |
 | `premake5`                  | `execvp` / `CreateProcessA` | No             | NORMAL — known binary, schema-bound |
@@ -139,10 +140,12 @@ same name from elsewhere on the system.
 
 ### Layer 6: Path confinement
 
-All `dest` fields (`fetch_entry::dest`, `docker_entry::dest`) and artifact
-source paths are validated against the project root and cache directory.
-Any resolved path that falls outside `ctx.root` or `ctx.cache_dir` is
-**rejected** unless `--privileged` is used.
+All `dest` fields (`fetch_entry::dest`, `docker_entry::dest`, `copy_data`
+sources/dests) and artifact source paths are validated against the project
+root and cache directory. Any resolved path that falls outside `ctx.root` or
+`ctx.cache_dir` is **rejected** unless `--privileged` is used. The `copy` stage
+is stricter: it permits the project root only and rejects `cache://` and any
+escape path as a hard config error that `--privileged` cannot bypass.
 
 Paths are expressed using the `root://` and `cache://` prefixes, which
 resolve to the project root and platform cache directory respectively.

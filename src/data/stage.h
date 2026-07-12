@@ -15,7 +15,7 @@ class Prompter;
 
 // ---- Stage type enum ----
 
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy };
 
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
@@ -154,6 +154,28 @@ struct package_data : stage_data
 {
     std::vector<artifact_entry> artifacts;
     std::string bundle;
+};
+
+// Copy/distribute local asset files from a source location into one or more
+// destination paths. Mirrors a "init-assets" style script: validate the
+// sources exist, then `cp -f` each into every destination (mkdir -p parents).
+struct copy_file
+{
+    std::string source;                  // file to copy (relative to source_dir/base or prefixed)
+    std::vector<std::string> dests;      // one or more destination paths
+};
+
+struct copy_entry
+{
+    std::string source_dir;              // optional base dir for relative `source`
+    std::optional<bool> fail_if_missing; // unset → true (fail stage if a source is missing)
+    std::vector<copy_file> files;
+};
+
+struct copy_data : stage_data
+{
+    copy_entry defaults;
+    std::map<platform_type, platform_entry<copy_entry>> platform;
 };
 
 // Roadmap: external binary metadata files (e.g. binaries/*.toml) will define

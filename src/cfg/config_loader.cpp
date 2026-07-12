@@ -8,6 +8,7 @@
 #include "action/install_action.h"
 #include "action/uninstall_action.h"
 #include "action/clean_action.h"
+#include "action/copy_action.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -253,6 +254,12 @@ static void parse_stages(
             clean_action::parse(elem, *d);
             sd.data = std::move(d);
         }
+        else if (sd.type == stage_type::copy)
+        {
+            auto d = std::make_unique<copy_data>();
+            copy_action::parse(elem, *d);
+            sd.data = std::move(d);
+        }
         else if (sd.type == stage_type::disabled)
         {
             sd.data = std::make_unique<group_data>();
@@ -433,6 +440,28 @@ static void parse_stages(
                             }
                             if (sv.has("symlink")) pe.symlink = sv.get_bool_flex("symlink");
                             pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::copy:
+                        {
+                            auto *d = dynamic_cast<copy_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<copy_entry> pe;
+                            auto sd_dir = sv.get_string("source_dir");
+                            if (!sd_dir.empty()) pe.source_dir = sd_dir;
+                            if (sv.has("fail_if_missing"))
+                                pe.fail_if_missing = sv.get_bool_flex("fail_if_missing");
+                            auto farr = sv.get_array("files");
+                            for (auto &elem : farr)
+                            {
+                                copy_file cf;
+                                cf.source = elem.get_string("source");
+                                auto dests = elem.get_array("dests");
+                                for (auto &dd : dests)
+                                    cf.dests.push_back(dd.as_string());
+                                pe.files.push_back(std::move(cf));
+                            }
                             d->platform[pt] = std::move(pe);
                             break;
                         }
