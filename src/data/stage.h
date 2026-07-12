@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class Logger;
@@ -14,7 +15,7 @@ class Prompter;
 
 // ---- Stage type enum ----
 
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy };
 
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
@@ -65,6 +66,7 @@ struct docker_entry
     std::string recipe;
     std::string target;
     std::string dest;
+    std::map<std::string, std::string> build_args;
 };
 
 struct premake5_entry
@@ -74,6 +76,7 @@ struct premake5_entry
     std::optional<bool> strip = true;
     std::string target;
     std::string project;
+    std::string config;
 };
 
 // ---- Platform entry template (adds build_context override to any entry type) ----
@@ -117,12 +120,16 @@ struct download_data : stage_data
     std::vector<std::string> assets;
     std::vector<fetch_entry> entries;
     std::map<std::string, std::string> vars;
+    bool clean = false;
+    std::vector<std::string> clean_paths;
 };
 
 struct buildable_data : stage_data
 {
     std::vector<std::string> outputs;
     std::string build_context;
+    bool clean = false;                       // opt-in for clean stage collection
+    std::vector<std::string> clean_paths;     // extra paths to clean beyond outputs
 };
 
 struct run_data : buildable_data
@@ -147,6 +154,28 @@ struct package_data : stage_data
 {
     std::vector<artifact_entry> artifacts;
     std::string bundle;
+};
+
+// Copy/distribute local asset files from a source location into one or more
+// destination paths. Mirrors a "init-assets" style script: validate the
+// sources exist, then `cp -f` each into every destination (mkdir -p parents).
+struct copy_file
+{
+    std::string source;                  // file to copy (relative to source_dir/base or prefixed)
+    std::vector<std::string> dests;      // one or more destination paths
+};
+
+struct copy_entry
+{
+    std::string source_dir;              // optional base dir for relative `source`
+    std::optional<bool> fail_if_missing; // unset → true (fail stage if a source is missing)
+    std::vector<copy_file> files;
+};
+
+struct copy_data : stage_data
+{
+    copy_entry defaults;
+    std::map<platform_type, platform_entry<copy_entry>> platform;
 };
 
 // Roadmap: external binary metadata files (e.g. binaries/*.toml) will define
@@ -192,6 +221,12 @@ struct group_data : stage_data
 {
 };
 
+struct clean_data : stage_data
+{
+    std::vector<std::string> targets; // stages whose artifacts to clean (not resolved as deps)
+    std::vector<std::string> paths;   // extra paths to remove
+};
+
 // ---- Stage descriptor ----
 
 struct stage_desc
@@ -219,6 +254,10 @@ struct runtime
     std::string config_sha;
     Logger *logger = nullptr;
     Prompter *prompter = nullptr;
+
+    // Stage map for actions that need to inspect other stages (e.g. clean).
+    // Set by the resolver before dispatch.
+    const std::unordered_map<std::string, stage_desc> *stages = nullptr;
 
     std::string resolve_path(const std::string &path) const;
 };

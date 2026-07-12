@@ -1,4 +1,5 @@
 #include "cfg/config.h"
+#include "sys/utils.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -95,6 +96,27 @@ bool config_node::get_bool(const std::string &key, bool def) const
     auto nv = (*tbl)[key];
     auto v = nv.as_boolean();
     return v ? **v : def;
+}
+
+bool config_node::get_bool_flex(const std::string &key, bool def) const
+{
+    if (!m_impl || !m_impl->node)
+        return def;
+    auto tbl = m_impl->node->as_table();
+    if (!tbl)
+        return def;
+    auto nv = (*tbl)[key];
+
+    auto b = nv.as_boolean();
+    if (b) return **b;
+
+    auto i = nv.as_integer();
+    if (i) return **i != 0;
+
+    auto s = nv.as_string();
+    if (s) return util::to_bool(std::string(**s), def);
+
+    return def;
 }
 
 std::vector<config_node> config_node::as_array() const

@@ -54,7 +54,7 @@ static std::vector<trusted_entry> &trusted_cache()
                         e.paths.push_back(p.as_string());
 
                     e.trusted_at = static_cast<std::int64_t>(elem.get_int("trusted_at", 0));
-                    e.permanent = elem.get_bool("permanent");
+                    e.permanent = elem.get_bool_flex("permanent");
                     cache.push_back(std::move(e));
                 }
             }

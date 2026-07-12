@@ -79,6 +79,8 @@ bool engine::resolve(const std::string &stage_name, runtime &ctx)
     if (!security::check_run_stages(m_impl->stages, m_impl->config_files, ctx, m_impl->error))
         return false;
 
+    ctx.stages = &m_impl->stages;
+
     std::set<std::string> visiting;
     std::set<std::string> resolved;
     return m_impl->resv.resolve(stage_name, ctx, visiting, resolved);
@@ -87,6 +89,7 @@ bool engine::resolve(const std::string &stage_name, runtime &ctx)
 bool engine::resolve_all(runtime &ctx)
 {
     ctx.project = m_impl->project;
+    ctx.stages = &m_impl->stages;
     auto expired = prefs::sanitize();
     if (expired > 0 && ctx.logger)
         ctx.logger->info("Cleared " + std::to_string(expired) + " expired trust entries (see " + prefs::prefs_path() + ")");

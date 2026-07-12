@@ -9,6 +9,8 @@
 #include "action/uninstall_action.h"
 #include "action/group_action.h"
 #include "action/disabled_action.h"
+#include "action/clean_action.h"
+#include "action/copy_action.h"
 #include "logger/logger.h"
 
 resolver::resolver(
@@ -29,6 +31,8 @@ resolver::resolver(
     m_actions[stage_type::binary]   = std::make_unique<binary_action>();
     m_actions[stage_type::install]   = std::make_unique<install_action>();
     m_actions[stage_type::uninstall] = std::make_unique<uninstall_action>();
+    m_actions[stage_type::clean]     = std::make_unique<clean_action>();
+    m_actions[stage_type::copy]      = std::make_unique<copy_action>();
 }
 
 stage_desc *resolver::find(const std::string &name)

@@ -5,6 +5,7 @@
 #include "logger/console.h"
 #include "logger/prompter.h"
 #include "sys/platform.h"
+#include <filesystem>
 #include <set>
 
 #ifndef _WIN32
@@ -44,6 +45,13 @@ bool security::check_root_sudo(const runtime &ctx, std::string &error)
 
     return false;
 #endif
+}
+
+bool security::is_in_root(const runtime &ctx, const std::string &resolved)
+{
+    auto n = ctx.root.size();
+    return resolved == ctx.root
+        || (resolved.size() > n && resolved.compare(0, n, ctx.root) == 0 && resolved[n] == '/');
 }
 
 bool security::check_path_safety(
@@ -112,6 +120,53 @@ bool security::check_path_safety(
                 auto cr = path::check(resolved, ctx.root, ctx.cache_dir, privilege::build);
                 if (cr != path::check_result::ok)
                     issues.push_back({name, "install artifact source", resolved, cr});
+            }
+        }
+
+        // copy source/dest — project root only (no cache://, no outside-root).
+        // Reported as config_error so --privileged cannot bypass confinement.
+        if (auto *cd = dynamic_cast<copy_data*>(sd.data.get()))
+        {
+            namespace fs = std::filesystem;
+            auto base = cd->defaults.source_dir.empty()
+                ? std::string()
+                : ctx.resolve_path(cd->defaults.source_dir);
+
+            auto resolve_cp = [&](const std::string &p, const std::string &b) -> std::string {
+                if (p.find(path::root) != std::string::npos || p.find(path::cache) != std::string::npos)
+                    return ctx.resolve_path(p);
+                if (!b.empty())
+                    return (fs::path(b) / p).lexically_normal().string();
+                return (fs::path(ctx.root) / p).lexically_normal().string();
+            };
+            auto check_cp = [&](const std::string &p, const std::string &label) {
+                if (p.empty()) return;
+                if (p.find(path::cache) != std::string::npos)
+                {
+                    issues.push_back({name, label + " (cache:// not allowed)",
+                                      ctx.resolve_path(p), path::check_result::config_error});
+                    return;
+                }
+                auto resolved = resolve_cp(p, base);
+                if (!security::is_in_root(ctx, resolved))
+                    issues.push_back({name, label + " (outside project root)",
+                                      resolved, path::check_result::config_error});
+            };
+
+            for (auto &cf : cd->defaults.files)
+            {
+                check_cp(cf.source, "copy source");
+                for (auto &d : cf.dests)
+                    check_cp(d, "copy dest");
+            }
+            for (auto &[pt, pe] : cd->platform)
+            {
+                for (auto &cf : pe.files)
+                {
+                    check_cp(cf.source, "copy source (" + platform::to_string(pt) + ")");
+                    for (auto &d : cf.dests)
+                        check_cp(d, "copy dest (" + platform::to_string(pt) + ")");
+                }
             }
         }
     }

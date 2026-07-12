@@ -113,23 +113,28 @@ bool binary_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     // Check cache://bin first, then system PATH
     auto bin_name = platform::exe_name(d->binary_name);
     auto path_cmd = (fs::path(bin_dir) / bin_name).string();
-    auto code = process::run(path_cmd, argv, cwd);
-    if (code == -1)
+    auto res = process::run_with_err(path_cmd, argv, cwd);
+    if (res.code == -1 || res.code == 127)
     {
         // Fall back to PATH lookup (bare name; execvp/CreateProcessA handle PATHEXT)
-        code = process::run(d->binary_name, argv, cwd);
+        res = process::run_with_err(d->binary_name, argv, cwd);
     }
 
-    if (code == -1)
+    if (res.code == -1 || res.code == 127)
     {
         error = "binary '" + d->binary_name + "' not found in " + bin_dir
                 + " or PATH for stage " + sd.name;
+        if (!res.err.empty())
+            error += " (" + res.err + ")";
         return false;
     }
 
-    if (code != 0)
+    if (res.code != 0)
     {
-        error = "binary '" + d->binary_name + "' failed for stage " + sd.name;
+        error = "binary '" + d->binary_name + "' exited with code " + std::to_string(res.code)
+                + " for stage " + sd.name;
+        if (!res.err.empty())
+            error += "\n" + res.err;
         return false;
     }
 

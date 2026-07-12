@@ -85,12 +85,12 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
         artifact_entry ae;
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
-        ae.userdir = elem.get_bool("userdir");
+        ae.userdir = elem.get_bool_flex("userdir");
         d.defaults.artifacts.push_back(ae);
     }
 
     if (cfg.has("symlink"))
-        d.defaults.symlink = cfg.get_bool("symlink");
+        d.defaults.symlink = cfg.get_bool_flex("symlink");
 
     auto plat = cfg.get_table("platform");
     if (!plat)
@@ -110,11 +110,11 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
             artifact_entry ae;
             ae.source = elem.get_string("source");
             ae.dest = elem.get_string("dest");
-            ae.userdir = elem.get_bool("userdir");
+            ae.userdir = elem.get_bool_flex("userdir");
             pe.artifacts.push_back(ae);
         }
 
-        if (val.has("symlink")) pe.symlink = val.get_bool("symlink");
+        if (val.has("symlink")) pe.symlink = val.get_bool_flex("symlink");
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);
@@ -123,9 +123,36 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
 
 bool uninstall_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 {
-    (void)sd;
-    (void)ctx;
-    return false;
+    auto *d = dynamic_cast<uninstall_data*>(sd.data.get());
+    if (!d)
+        return false;
+
+    auto dir = d->defaults.dir;
+    auto artifacts = d->defaults.artifacts;
+
+    auto pit = d->platform.find(ctx.platform);
+    if (pit != d->platform.end())
+    {
+        if (!pit->second.dir.empty()) dir = pit->second.dir;
+        if (!pit->second.artifacts.empty()) artifacts = pit->second.artifacts;
+    }
+
+    dir = effective_dir(dir, ctx.platform, ctx.project);
+    auto install_dir = ctx.resolve_path(dir);
+    if (install_dir.empty())
+        return false;
+
+    // Nothing to uninstall if no dest file exists for any artifact
+    for (auto &art : artifacts)
+    {
+        auto dst = (fs::path(install_dir) / art.dest).string();
+        if (fs::exists(dst))
+            return false;
+    }
+
+    if (ctx.logger)
+        ctx.logger->info("  nothing to do — already clean");
+    return true;
 }
 
 bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)

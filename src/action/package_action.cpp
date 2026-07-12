@@ -16,7 +16,7 @@ void package_action::parse(config_node &cfg, package_data &d)
         artifact_entry ae;
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
-        ae.binary = elem.get_bool("binary");
+        ae.binary = elem.get_bool_flex("binary");
         if (ae.dest.empty())
         {
             auto slash = ae.source.rfind('/');
