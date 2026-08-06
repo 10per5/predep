@@ -119,6 +119,46 @@ bool config_node::get_bool_flex(const std::string &key, bool def) const
     return def;
 }
 
+int config_node::get_octal_mode(const std::string &key, int &out) const
+{
+    if (!m_impl || !m_impl->node)
+        return 0;
+    auto tbl = m_impl->node->as_table();
+    if (!tbl)
+        return 0;
+    auto nv = (*tbl)[key];
+    if (!nv)
+        return 0;
+
+    std::string digits;
+    if (auto s = nv.as_string())
+        digits = std::string(**s);
+    else if (auto i = nv.as_integer())
+        digits = std::to_string(static_cast<std::int64_t>(**i));
+    else
+        return -1;
+
+    // Allow an explicit "0o" / "0O" prefix on string values.
+    if (digits.size() >= 2 && digits[0] == '0' && (digits[1] == 'o' || digits[1] == 'O'))
+        digits = digits.substr(2);
+
+    if (digits.empty())
+        return -1;
+
+    int mode = 0;
+    for (char c : digits)
+    {
+        if (c < '0' || c > '7')
+            return -1;
+        mode = mode * 8 + (c - '0');
+    }
+    if (mode > 07777)
+        return -1;
+
+    out = mode;
+    return 1;
+}
+
 std::vector<config_node> config_node::as_array() const
 {
     if (!m_impl || !m_impl->node)

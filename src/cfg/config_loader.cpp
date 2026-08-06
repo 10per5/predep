@@ -415,9 +415,16 @@ static void parse_stages(
                                 ae.source = elem.get_string("source");
                                 ae.dest = elem.get_string("dest");
                                 ae.userdir = elem.get_bool_flex("userdir");
+                                ae.binary = elem.get_bool_flex("binary");
+                                if (elem.get_octal_mode("chmod", ae.mode) < 0)
+                                    ae.mode = -1;
+                                ae.chown_user = elem.get_bool_flex("chown_user");
                                 pe.artifacts.push_back(ae);
                             }
                             if (sv.has("symlink")) pe.symlink = sv.get_bool_flex("symlink");
+                            if (sv.get_octal_mode("chmod", pe.mode) < 0)
+                                pe.mode = -1;
+                            pe.chown_user = sv.get_bool_flex("chown_user");
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
@@ -436,9 +443,16 @@ static void parse_stages(
                                 ae.source = elem.get_string("source");
                                 ae.dest = elem.get_string("dest");
                                 ae.userdir = elem.get_bool_flex("userdir");
+                                ae.binary = elem.get_bool_flex("binary");
+                                if (elem.get_octal_mode("chmod", ae.mode) < 0)
+                                    ae.mode = -1;
+                                ae.chown_user = elem.get_bool_flex("chown_user");
                                 pe.artifacts.push_back(ae);
                             }
                             if (sv.has("symlink")) pe.symlink = sv.get_bool_flex("symlink");
+                            if (sv.get_octal_mode("chmod", pe.mode) < 0)
+                                pe.mode = -1;
+                            pe.chown_user = sv.get_bool_flex("chown_user");
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
@@ -624,6 +638,14 @@ bool config_loader::load(const std::string &path)
         auto install_dir = install_cfg.get_string("dir");
         auto symlink = install_cfg.get_bool_flex("symlink", false);
 
+        int install_mode = -1;
+        if (int r = install_cfg.get_octal_mode("chmod", install_mode); r < 0)
+        {
+            m_error = "[install] 'chmod' must be an octal mode (e.g. 644 or 755)";
+            return false;
+        }
+        auto install_chown = install_cfg.get_bool_flex("chown_user", false);
+
         std::vector<artifact_entry> artifacts;
         auto art_arr = install_cfg.get_array("artifacts");
         for (auto &elem : art_arr)
@@ -631,6 +653,14 @@ bool config_loader::load(const std::string &path)
             artifact_entry ae;
             ae.source = elem.get_string("source");
             ae.dest = elem.get_string("dest");
+            ae.userdir = elem.get_bool_flex("userdir");
+            ae.binary = elem.get_bool_flex("binary");
+            if (int r = elem.get_octal_mode("chmod", ae.mode); r < 0)
+            {
+                m_error = "[install] artifact '" + ae.dest + "' has invalid 'chmod' (use octal like 644 or 755)";
+                return false;
+            }
+            ae.chown_user = elem.get_bool_flex("chown_user");
             artifacts.push_back(ae);
         }
 
@@ -655,6 +685,8 @@ bool config_loader::load(const std::string &path)
             id->defaults.dir = install_dir;
             id->defaults.artifacts = artifacts;
             id->defaults.symlink = symlink;
+            id->defaults.mode = install_mode;
+            id->defaults.chown_user = install_chown;
             install_sd.data = std::move(id);
             install_sd.config_dir = m_config_dir;
             install_sd.source_file = path;
@@ -673,6 +705,8 @@ bool config_loader::load(const std::string &path)
             ud->defaults.dir = install_dir;
             ud->defaults.artifacts = artifacts;
             ud->defaults.symlink = symlink;
+            ud->defaults.mode = install_mode;
+            ud->defaults.chown_user = install_chown;
             uninstall_sd.data = std::move(ud);
             uninstall_sd.config_dir = m_config_dir;
             uninstall_sd.source_file = path;

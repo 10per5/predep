@@ -26,6 +26,12 @@ public:
     bool get_bool_flex(const std::string &key, bool def = false) const;
     std::int64_t get_int(const std::string &key, std::int64_t def = 0) const;
 
+    // Parses an octal chmod mode. Accepts an integer whose decimal digits are
+    // read as octal (644 -> 0o644) or a string ("0644", "0o644"). Returns 1
+    // when parsed (out is set), 0 when the key is absent, -1 when present but
+    // invalid (non-octal digits or out of range).
+    int get_octal_mode(const std::string &key, int &out) const;
+
     std::vector<config_node> get_array(const std::string &key) const;
     config_node get_table(const std::string &key) const;
     void for_each(std::function<void(const std::string&, const config_node&)>) const;
