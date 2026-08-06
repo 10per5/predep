@@ -3,8 +3,13 @@
 #include "security/security.h"
 #include "sys/platform.h"
 #include "sys/process.h"
+#include <cerrno>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -14,6 +19,18 @@ namespace fs = std::filesystem;
 // warning on every artifact.
 static bool s_elevation_warned = false;
 
+// Per-artifact permissions: artifact-level value wins over the install-level
+// default (root `[install]` `chmod` / `chown_user`).
+static int effective_mode(const artifact_entry &ae, int default_mode)
+{
+    return ae.mode >= 0 ? ae.mode : default_mode;
+}
+
+static bool effective_chown_user(const artifact_entry &ae, bool default_chown)
+{
+    return ae.chown_user || default_chown;
+}
+
 static std::string effective_dir(const std::string &dir, platform_type plat, const std::string &project)
 {
     if (!dir.empty())
@@ -21,6 +38,270 @@ static std::string effective_dir(const std::string &dir, platform_type plat, con
     if (plat == platform_type::windows && !project.empty())
         return "C:/Program Files/" + project;
     return "/usr/local/bin";
+}
+
+static bool set_file_mode(const std::string &path, int mode, Logger *logger)
+{
+#ifndef _WIN32
+    if (::chmod(path.c_str(), static_cast<mode_t>(mode)) == 0)
+        return true;
+
+    if (errno == EACCES || errno == EPERM)
+    {
+#ifdef ALLOW_ELEVATION
+        if (logger && !s_elevation_warned)
+        {
+            s_elevation_warned = true;
+            logger->warn("  permission denied, attempting elevation...");
+        }
+        char oct[16];
+        std::snprintf(oct, sizeof(oct), "0%03o", mode);
+        return process::run_with_err("sudo", {"chmod", oct, path}).code == 0;
+#else
+        if (logger)
+            logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
+        return false;
+#endif
+    }
+
+    return false;
+#else
+    (void)path;
+    (void)mode;
+    (void)logger;
+    return true;
+#endif
+}
+
+static bool chown_to_user(const std::string &path, Logger *logger)
+{
+#ifndef _WIN32
+    uid_t uid = ::getuid();
+    gid_t gid = platform::install_group();
+    // Sets both owner and group in one call. The owner may change the group
+    // without elevation only to a group they belong to; otherwise the sudo
+    // fallback below repairs it.
+    if (::chown(path.c_str(), uid, gid) == 0)
+        return true;
+
+    if (errno == EACCES || errno == EPERM)
+    {
+#ifdef ALLOW_ELEVATION
+        if (logger && !s_elevation_warned)
+        {
+            s_elevation_warned = true;
+            logger->warn("  permission denied, attempting elevation...");
+        }
+        auto uid_gid = std::to_string(uid) + ":" + std::to_string(gid);
+        return process::run_with_err("sudo", {"chown", uid_gid, path}).code == 0;
+#else
+        if (logger)
+            logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
+        return false;
+#endif
+    }
+
+    return false;
+#else
+    (void)path;
+    (void)logger;
+    return true;
+#endif
+}
+
+// Recursively transfers ownership of path and everything under it to the
+// invoking user and the chown_user group. Tries a direct walk first; on any
+// EACCES/EPERM it falls back to a single `sudo chown -R`. Used for directory
+// artifacts so the whole tree stays user-writable for later re-installs.
+static bool tree_chown_to_user(const std::string &path, Logger *logger)
+{
+#ifndef _WIN32
+    uid_t uid = ::getuid();
+    gid_t gid = platform::install_group();
+    bool needs_sudo = false;
+
+    auto apply = [&](const char *p) -> bool
+    {
+        if (::chown(p, uid, gid) == 0)
+            return true;
+        if (errno == EACCES || errno == EPERM)
+        {
+            needs_sudo = true;
+            return true;
+        }
+        return false;
+    };
+
+    if (!apply(path.c_str()))
+        return false;
+
+    std::error_code ec;
+    fs::recursive_directory_iterator it(path, ec);
+    fs::recursive_directory_iterator end;
+    if (ec)
+        return false;
+    for (; it != end; it.increment(ec))
+    {
+        if (ec)
+            return false;
+        if (!apply(it->path().c_str()))
+            return false;
+    }
+
+    if (!needs_sudo)
+        return true;
+
+#ifdef ALLOW_ELEVATION
+    if (logger && !s_elevation_warned)
+    {
+        s_elevation_warned = true;
+        logger->warn("  permission denied, attempting elevation...");
+    }
+    auto uid_gid = std::to_string(uid) + ":" + std::to_string(gid);
+    return process::run_with_err("sudo", {"chown", "-R", uid_gid, path}).code == 0;
+#else
+    if (logger)
+        logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
+    return false;
+#endif
+#else
+    (void)path;
+    (void)logger;
+    return true;
+#endif
+}
+
+// True when path and every entry under it are owned by the invoking user with
+// the chown_user group. Always true on Windows (ownership transfer is a no-op
+// there).
+static bool tree_matches_ownership(const std::string &path)
+{
+#ifndef _WIN32
+    if (!platform::file_matches_ownership(path))
+        return false;
+    std::error_code ec;
+    fs::recursive_directory_iterator it(path, ec);
+    fs::recursive_directory_iterator end;
+    if (ec)
+        return false;
+    for (; it != end; it.increment(ec))
+    {
+        if (ec)
+            return false;
+        if (!platform::file_matches_ownership(it->path().string()))
+            return false;
+    }
+    return true;
+#else
+    (void)path;
+    return true;
+#endif
+}
+
+// Recursively compares a source directory against a destination directory.
+// Returns true when every file under src exists at the same relative path
+// under dst with identical content (size fast-path, then sha256). Extra files
+// in dst are ignored — install doesn't clean the destination.
+static bool directories_match(const std::string &src, const std::string &dst)
+{
+    std::error_code ec;
+    fs::recursive_directory_iterator it(src, ec);
+    fs::recursive_directory_iterator end;
+    if (ec)
+        return false;
+
+    for (; it != end; it.increment(ec))
+    {
+        if (ec)
+            return false;
+
+        auto rel = fs::relative(it->path(), src, ec);
+        if (ec)
+            return false;
+        auto counterpart = (fs::path(dst) / rel).string();
+
+        std::error_code sec;
+        if (it->is_directory(sec))
+        {
+            if (sec || !fs::is_directory(counterpart, sec) || sec)
+                return false;
+            continue;
+        }
+        if (sec || !fs::exists(counterpart, sec) || sec)
+            return false;
+        if (fs::is_directory(counterpart, sec))
+            return false;
+
+        auto s1 = fs::file_size(it->path(), sec);
+        if (sec)
+            return false;
+        auto s2 = fs::file_size(counterpart, sec);
+        if (sec || s1 != s2)
+            return false;
+
+        if (platform::file_hash(it->path().string()) != platform::file_hash(counterpart))
+            return false;
+    }
+    return true;
+}
+
+// Resolves an artifact's source and destination paths, applying the Windows
+// .exe suffix for binary artifacts. `rel` (optional) receives the destination
+// relative to the install dir, for the uninstall manifest.
+static void artifact_paths(const artifact_entry &ae, const std::string &install_dir,
+                           runtime &ctx, std::string &src, std::string &dst, std::string *rel = nullptr)
+{
+    auto s = ae.source;
+    auto d = ae.dest;
+    if (ctx.platform == platform_type::windows && ae.binary)
+    {
+        s += ".exe";
+        d += ".exe";
+    }
+    src = ctx.resolve_path(s);
+    dst = (fs::path(install_dir) / d).string();
+    if (rel)
+        *rel = d;
+}
+
+// True when the artifact is already installed with matching content and the
+// declared permissions/ownership. Shared by the stage-level skip in
+// is_resolved() and by resolve() to avoid re-copying unchanged artifacts
+// (re-copying a root-owned, unchanged file would prompt for elevation for no
+// reason, e.g. when only a sibling artifact needs a refresh).
+static bool artifact_up_to_date(const artifact_entry &ae, const std::string &src,
+                                const std::string &dst, int default_mode, bool default_chown)
+{
+    if (!fs::exists(src))
+        return false;
+
+    if (fs::is_directory(src))
+    {
+        if (!fs::is_directory(dst) || !directories_match(src, dst))
+            return false;
+        if (effective_chown_user(ae, default_chown) && !tree_matches_ownership(dst))
+            return false;
+        return true;
+    }
+
+    if (!fs::exists(dst) || fs::is_directory(dst))
+        return false;
+
+    auto src_hash = platform::file_hash(src);
+    auto dst_hash = platform::file_hash(dst);
+    if (src_hash.empty() || dst_hash.empty() || src_hash != dst_hash)
+        return false;
+
+    auto mode = effective_mode(ae, default_mode);
+    if (mode >= 0)
+    {
+        auto cur = platform::file_mode(dst);
+        if (cur != -1 && cur != mode)
+            return false;
+    }
+    if (effective_chown_user(ae, default_chown) && !platform::file_matches_ownership(dst))
+        return false;
+    return true;
 }
 
 static bool ensure_dir(const std::string &path, Logger *logger)
@@ -204,6 +485,10 @@ void install_action::parse(config_node &cfg, install_data &d)
 {
     d.defaults.dir = cfg.get_string("dir");
 
+    if (cfg.get_octal_mode("chmod", d.defaults.mode) < 0)
+        d.defaults.mode = -1;
+    d.defaults.chown_user = cfg.get_bool_flex("chown_user", d.defaults.chown_user);
+
     auto arr = cfg.get_array("artifacts");
     for (auto &elem : arr)
     {
@@ -212,6 +497,9 @@ void install_action::parse(config_node &cfg, install_data &d)
         ae.dest = elem.get_string("dest");
         ae.userdir = elem.get_bool_flex("userdir");
         ae.binary = elem.get_bool_flex("binary");
+        if (elem.get_octal_mode("chmod", ae.mode) < 0)
+            ae.mode = -1;
+        ae.chown_user = elem.get_bool_flex("chown_user");
         d.defaults.artifacts.push_back(ae);
     }
 
@@ -237,10 +525,17 @@ void install_action::parse(config_node &cfg, install_data &d)
             ae.source = elem.get_string("source");
             ae.dest = elem.get_string("dest");
             ae.userdir = elem.get_bool_flex("userdir");
+            ae.binary = elem.get_bool_flex("binary");
+            if (elem.get_octal_mode("chmod", ae.mode) < 0)
+                ae.mode = -1;
+            ae.chown_user = elem.get_bool_flex("chown_user");
             pe.artifacts.push_back(ae);
         }
 
         if (val.has("symlink")) pe.symlink = val.get_bool_flex("symlink");
+        if (val.get_octal_mode("chmod", pe.mode) < 0)
+            pe.mode = -1;
+        pe.chown_user = val.get_bool_flex("chown_user");
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);
@@ -255,12 +550,16 @@ bool install_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 
     auto dir = d->defaults.dir;
     auto artifacts = d->defaults.artifacts;
+    auto default_mode = d->defaults.mode;
+    auto default_chown = d->defaults.chown_user;
 
     auto pit = d->platform.find(ctx.platform);
     if (pit != d->platform.end())
     {
         if (!pit->second.dir.empty()) dir = pit->second.dir;
         if (!pit->second.artifacts.empty()) artifacts = pit->second.artifacts;
+        if (pit->second.mode >= 0) default_mode = pit->second.mode;
+        if (pit->second.chown_user) default_chown = true;
     }
 
     dir = effective_dir(dir, ctx.platform, ctx.project);
@@ -270,25 +569,9 @@ bool install_action::is_resolved(const stage_desc &sd, runtime &ctx) const
 
     for (auto &art : artifacts)
     {
-        auto src = art.source;
-        auto dst = art.dest;
-        if (ctx.platform == platform_type::windows && art.binary)
-        {
-            src += ".exe";
-            dst += ".exe";
-        }
-        auto resolved_src = ctx.resolve_path(src);
-        auto resolved_dst = (fs::path(install_dir) / dst).string();
-
-        if (!fs::exists(resolved_src) || fs::is_directory(resolved_src))
-            return false;
-
-        if (!fs::exists(resolved_dst))
-            return false;
-
-        auto src_hash = platform::file_hash(resolved_src);
-        auto dst_hash = platform::file_hash(resolved_dst);
-        if (src_hash.empty() || dst_hash.empty() || src_hash != dst_hash)
+        std::string src, dst;
+        artifact_paths(art, install_dir, ctx, src, dst);
+        if (!artifact_up_to_date(art, src, dst, default_mode, default_chown))
             return false;
     }
 
@@ -309,6 +592,8 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto dir = d->defaults.dir;
     auto artifacts = d->defaults.artifacts;
     auto symlink = d->defaults.symlink;
+    auto default_mode = d->defaults.mode;
+    auto default_chown = d->defaults.chown_user;
 
     auto pit = d->platform.find(ctx.platform);
     bool has_plat = pit != d->platform.end();
@@ -317,6 +602,8 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         if (!pit->second.dir.empty()) dir = pit->second.dir;
         if (!pit->second.artifacts.empty()) artifacts = pit->second.artifacts;
         symlink = pit->second.symlink;
+        if (pit->second.mode >= 0) default_mode = pit->second.mode;
+        if (pit->second.chown_user) default_chown = true;
     }
 
     dir = effective_dir(dir, ctx.platform, ctx.project);
@@ -353,18 +640,24 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     for (auto &art : artifacts)
     {
-        if (ctx.platform == platform_type::windows && art.binary)
-        {
-            art.source += ".exe";
-            art.dest += ".exe";
-        }
-        auto src = ctx.resolve_path(art.source);
-        auto dst = (fs::path(install_dir) / art.dest).string();
+        std::string src, dst;
+        artifact_paths(art, install_dir, ctx, src, dst);
 
         if (!fs::exists(src))
         {
             error = "artifact not found: " + src;
             return false;
+        }
+
+        // Skip artifacts already installed with matching content and declared
+        // permissions/ownership. Re-copying an unchanged root-owned file would
+        // prompt for elevation even though nothing about it changed (e.g. when
+        // only a nested folder of a sibling artifact is missing).
+        if (artifact_up_to_date(art, src, dst, default_mode, default_chown))
+        {
+            if (ctx.logger)
+                ctx.logger->info("  " + dst + " already up to date");
+            continue;
         }
 
         auto parent = fs::path(dst).parent_path().string();
@@ -387,6 +680,35 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             error = "failed to copy " + src + " to " + dst;
             return false;
         }
+
+        // Apply declared permissions/ownership (artifact-level wins over the
+        // install-level default). Runs inside the sudo credential window, so
+        // elevated chmod/chown can repair files copied as root.
+        if (fs::is_directory(dst))
+        {
+            // Directory artifacts: chown_user applies recursively so the whole
+            // tree stays user-writable for later re-installs. chmod is not
+            // applied to dirs — a file-oriented mode (e.g. 0644) would make
+            // the tree untraversable.
+            if (effective_chown_user(art, default_chown) && !tree_chown_to_user(dst, ctx.logger))
+            {
+                error = "failed to change ownership of " + dst;
+                return false;
+            }
+            continue;
+        }
+
+        auto mode = effective_mode(art, default_mode);
+        if (mode >= 0 && !set_file_mode(dst, mode, ctx.logger))
+        {
+            error = "failed to set permissions on " + dst;
+            return false;
+        }
+        if (effective_chown_user(art, default_chown) && !chown_to_user(dst, ctx.logger))
+        {
+            error = "failed to change ownership of " + dst;
+            return false;
+        }
     }
 
 #ifndef _WIN32
@@ -398,50 +720,69 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             auto link_target = install_dir + "/" + artifacts[0].dest;
             auto link_path = default_bin + "/" + ctx.project;
 
-            if (!ensure_dir(default_bin, ctx.logger))
+            // Skip if the link already points at the target — avoids a sudo
+            // prompt on re-installs where nothing about the link changed.
+            bool link_ok = false;
             {
-                error = "failed to create " + default_bin;
-                return false;
-            }
-
-            std::error_code ec;
-            fs::remove(link_path, ec);
-            if (ec == std::errc::permission_denied)
-            {
-#ifdef ALLOW_ELEVATION
-                process::run_with_err("sudo", {"rm", "-f", link_path});
-#else
-                if (ctx.logger)
-                    ctx.logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
-                return false;
-#endif
-            }
-
-            std::error_code ec2;
-            fs::create_symlink(link_target, link_path, ec2);
-            if (ec2 == std::errc::permission_denied)
-            {
-#ifdef ALLOW_ELEVATION
-                auto res = process::run_with_err("sudo", {"ln", "-sf", link_target, link_path});
-                if (res.code != 0)
+                std::error_code sec;
+                if (fs::is_symlink(link_path, sec) && !sec)
                 {
-                    error = "failed to create symlink " + link_path + " -> " + link_target + ": " + res.err;
+                    auto cur = fs::read_symlink(link_path, sec);
+                    link_ok = !sec && cur == fs::path(link_target);
+                }
+            }
+            if (link_ok)
+            {
+                if (ctx.logger)
+                    ctx.logger->info("  symlink " + link_path + " already up to date");
+            }
+            else
+            {
+                if (!ensure_dir(default_bin, ctx.logger))
+                {
+                    error = "failed to create " + default_bin;
                     return false;
                 }
-#else
-                if (ctx.logger)
-                    ctx.logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
-                return false;
-#endif
-            }
-            else if (ec2)
-            {
-                error = "failed to create symlink " + link_path + " -> " + link_target + ": " + ec2.message();
-                return false;
-            }
 
-            if (ctx.logger)
-                ctx.logger->info("  symlink " + link_path + " -> " + link_target);
+                std::error_code ec;
+                fs::remove(link_path, ec);
+                if (ec == std::errc::permission_denied)
+                {
+#ifdef ALLOW_ELEVATION
+                    process::run_with_err("sudo", {"rm", "-f", link_path});
+#else
+                    if (ctx.logger)
+                        ctx.logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
+                    return false;
+#endif
+                }
+
+                std::error_code ec2;
+                fs::create_symlink(link_target, link_path, ec2);
+                if (ec2 == std::errc::permission_denied)
+                {
+#ifdef ALLOW_ELEVATION
+                    auto res = process::run_with_err("sudo", {"ln", "-sf", link_target, link_path});
+                    if (res.code != 0)
+                    {
+                        error = "failed to create symlink " + link_path + " -> " + link_target + ": " + res.err;
+                        return false;
+                    }
+#else
+                    if (ctx.logger)
+                        ctx.logger->error("  permission denied and predep was built without ALLOW_ELEVATION");
+                    return false;
+#endif
+                }
+                else if (ec2)
+                {
+                    error = "failed to create symlink " + link_path + " -> " + link_target + ": " + ec2.message();
+                    return false;
+                }
+
+                if (ctx.logger)
+                    ctx.logger->info("  symlink " + link_path + " -> " + link_target);
+            }
         }
     }
 #else
@@ -454,48 +795,63 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         std::string manifest;
         for (auto &art : artifacts)
         {
-            auto src = ctx.resolve_path(art.source);
+            std::string src, dst, rel;
+            artifact_paths(art, install_dir, ctx, src, dst, &rel);
             auto marker = art.userdir ? 'U' : (fs::is_directory(src) ? 'D' : 'F');
             manifest += marker;
             manifest += ':';
-            manifest += art.dest;
+            manifest += rel;
             manifest += '\n';
         }
 
         if (!manifest.empty())
         {
-            // Write to a temp file in a writable location, then move into place
-            auto tmp = ctx.cache_dir + "/.predep-manifest.tmp";
+            // Skip rewriting when the manifest is unchanged — the install dir
+            // is often root-owned, so a rewrite would fall back to sudo and
+            // prompt even when only an unrelated artifact changed.
+            std::ifstream ifs(manifest_path);
+            std::string existing((std::istreambuf_iterator<char>(ifs)),
+                                 std::istreambuf_iterator<char>());
+            if (existing == manifest)
             {
-                std::ofstream ofs(tmp);
-                if (ofs)
-                    ofs << manifest;
+                if (ctx.logger)
+                    ctx.logger->info("  manifest already up to date");
             }
-            std::error_code ec;
-            fs::rename(tmp, manifest_path, ec);
-            if (ec)
+            else
             {
-                // Direct write fallback
-                std::ofstream ofs(manifest_path);
-                if (ofs)
-                    ofs << manifest;
-                if (!ofs)
+                // Write to a temp file in a writable location, then move into place
+                auto tmp = ctx.cache_dir + "/.predep-manifest.tmp";
                 {
+                    std::ofstream ofs(tmp);
+                    if (ofs)
+                        ofs << manifest;
+                }
+                std::error_code ec;
+                fs::rename(tmp, manifest_path, ec);
+                if (ec)
+                {
+                    // Direct write fallback
+                    std::ofstream ofs(manifest_path);
+                    if (ofs)
+                        ofs << manifest;
+                    if (!ofs)
+                    {
 #ifdef ALLOW_ELEVATION
 #ifndef _WIN32
-                    // Write via sudo cp from temp
-                    process::run_with_err("sudo", {"cp", tmp, manifest_path});
+                        // Write via sudo cp from temp
+                        process::run_with_err("sudo", {"cp", tmp, manifest_path});
 #else
-                    process::run_elevated("copy", {"/Y", tmp, manifest_path});
+                        process::run_elevated("copy", {"/Y", tmp, manifest_path});
 #endif
 #else
-                    if (ctx.logger)
-                        ctx.logger->error("  failed to write manifest and predep was built without ALLOW_ELEVATION");
+                        if (ctx.logger)
+                            ctx.logger->error("  failed to write manifest and predep was built without ALLOW_ELEVATION");
 #endif
+                    }
                 }
+                // Clean up temp
+                fs::remove(tmp, ec);
             }
-            // Clean up temp
-            fs::remove(tmp, ec);
         }
     }
 

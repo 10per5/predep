@@ -142,6 +142,8 @@ symlink = true
 | `dir`       | Platform-aware | Install prefix (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`)                                             |
 | `artifacts` | — (required)   | Array of `{ source, dest }` — source is project/cache path, dest is relative to install dir                                |
 | `symlink`   | `false`        | Create `/usr/local/bin/<project>` symlink pointing to the first artifact (Unix only, skipped when dir == `/usr/local/bin`) |
+| `chmod`     | —              | Octal mode applied to artifacts that don't set their own (e.g. `chmod = 755`)                                              |
+| `chown_user`| `false`        | Give ownership of installed artifacts to the invoking user                                                                 |
 
 Platform overrides:
 
@@ -149,6 +151,30 @@ Platform overrides:
 [install.platform.darwin]
 dir = "/opt/myapp"
 ```
+
+Per-artifact `chmod` / `chown_user` override the install-level defaults:
+
+```toml
+[install]
+depends = ["build"]
+chmod = 644
+artifacts = [
+    { source = "root://bin/myapp", dest = "myapp", chmod = 755, chown_user = true },
+]
+```
+
+- `chmod` values are interpreted as octal (`644` → `0o644`); strings like
+  `"0644"` / `"0o644"` are accepted too (toml++ rejects `0644` as a bare int).
+- `chown_user` transfers ownership to the invoking user's numeric uid and the
+  shared group (the `users` group when it exists, else gid 1), so
+  later re-installs can overwrite the file without sudo.
+- Both fall back to `sudo chmod` / `sudo chown` when elevation is needed;
+  ignored on Windows. `install_action` also verifies declared mode/owner in
+  `is_resolved()` so re-running install repairs perms even when content matches.
+- Directory artifacts are compared recursively in `is_resolved()` (every file
+  under the source must match at the same relative path under the install dir);
+  `chown_user` on a directory applies recursively (`chown -R`), while `chmod`
+  is never applied to directories (a file-oriented mode breaks traversal).
 
 The install dir can be omitted entirely — the C++ action applies the correct
 default per-platform (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`).

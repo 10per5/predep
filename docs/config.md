@@ -256,6 +256,8 @@ artifacts = [
 | `dir` | Platform-dependent | Install prefix (Unix: `/usr/local/bin`, Windows: `C:/Program Files/<project>`) |
 | `artifacts` | — (required) | Array of `{ source, dest }` — source is project/cache path, dest is relative to install dir |
 | `symlink` | `false` | Create `/usr/local/bin/<project>` symlink (Unix only, skipped when dir == `/usr/local/bin`) |
+| `chmod` | — | Octal mode applied to every artifact that doesn't set its own (e.g. `chmod = 755`) |
+| `chown_user` | `false` | Give ownership of every installed artifact to the invoking user |
 
 Platform overrides:
 
@@ -267,6 +269,43 @@ dir = "/opt/myapp"
 Each artifact can set `binary = true` to auto-append `.exe` on Windows, or
 `userdir = true` to install to the user's home directory instead of the
 system prefix.
+
+### Per-artifact permissions
+
+`chmod` and `chown_user` can be set per artifact. An artifact-level value
+overrides the install-level default (root-level `chmod` / `chown_user`
+act as defaults for artifacts that don't specify one):
+
+```toml
+[install]
+depends = ["build"]
+chmod = 644
+artifacts = [
+    { source = "root://bin/predep", dest = "predep", chmod = 755, chown_user = true },
+    { source = "root://share/readme.txt", dest = "share/readme.txt" },
+]
+```
+
+- `chmod` values are interpreted as octal: `644` means `0o644`, `755`
+  means `0o755`. String forms like `"0644"` or `"0o644"` are also accepted
+  (toml++ rejects `0644` as a bare integer — leading zeros are not valid TOML).
+- `chown_user = true` runs `chown` to the invoking user's numeric uid and the
+  shared group (the `users` group when it exists, else gid 1) after the copy,
+  so the file stays editable without sudo on later installs.
+- Both fall back to `sudo chmod` / `sudo chown` automatically when the
+  destination requires elevated privileges (same model as `sudo cp`).
+- On Windows both are ignored.
+- **Directory artifacts** are compared recursively: `install` is skipped when
+  every file under the source exists at the same relative path under the
+  destination with identical content. `chown_user` on a directory applies
+  recursively (`chown -R`), so the whole tree stays user-writable. `chmod`
+  is not applied to directories — a file-oriented mode (e.g. `0644`) would
+  make the tree untraversable.
+
+This makes repeated installs idempotent: once files are owned by the user
+with the declared mode, `install` is skipped when the source hash matches
+(`is_resolved`), and when content changes the files can be rewritten
+without sudo because the user already owns them.
 
 ## Package stage artifacts
 

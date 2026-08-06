@@ -32,6 +32,8 @@ struct artifact_entry
     std::string dest;
     bool userdir = false;
     bool binary = false;
+    int mode = -1;              // -1 = unset; else octal mode (0o644, 0o755, ...)
+    bool chown_user = false;    // transfer ownership to the invoking user after install
 };
 
 struct fetch_entry
@@ -203,6 +205,8 @@ struct install_entry
     std::string dir;                              // install prefix (default: /usr/local/bin)
     std::vector<artifact_entry> artifacts;         // source → dest (dest relative to dir)
     bool symlink = false;                          // create /usr/local/bin/<project> symlink
+    int mode = -1;                                 // install-level default chmod for artifacts that don't set one
+    bool chown_user = false;                       // install-level default ownership
 };
 
 struct install_data : buildable_data

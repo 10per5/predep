@@ -235,6 +235,8 @@ executing arbitrary commands as root because the user accidentally ran
 | Create directory | `fs::create_directories()` | `sudo mkdir -p <path>` |
 | Create symlink | `fs::create_symlink()` | `sudo ln -sf <target> <link>` |
 | Remove symlink | `fs::remove()` | `sudo rm -f <link>` |
+| Set permissions | `::chmod()` | `sudo chmod 0<octal> <path>` |
+| Change owner | `::chown()` | `sudo chown <uid> <path>` |
 
 Sudo escalation is **not available on Windows** — install/uninstall on
 Windows must target user-writable directories or run as Administrator.

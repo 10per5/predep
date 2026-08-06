@@ -79,6 +79,10 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
 {
     d.defaults.dir = cfg.get_string("dir");
 
+    if (cfg.get_octal_mode("chmod", d.defaults.mode) < 0)
+        d.defaults.mode = -1;
+    d.defaults.chown_user = cfg.get_bool_flex("chown_user", d.defaults.chown_user);
+
     auto arr = cfg.get_array("artifacts");
     for (auto &elem : arr)
     {
@@ -86,6 +90,10 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
         ae.source = elem.get_string("source");
         ae.dest = elem.get_string("dest");
         ae.userdir = elem.get_bool_flex("userdir");
+        ae.binary = elem.get_bool_flex("binary");
+        if (elem.get_octal_mode("chmod", ae.mode) < 0)
+            ae.mode = -1;
+        ae.chown_user = elem.get_bool_flex("chown_user");
         d.defaults.artifacts.push_back(ae);
     }
 
@@ -111,10 +119,17 @@ void uninstall_action::parse(config_node &cfg, uninstall_data &d)
             ae.source = elem.get_string("source");
             ae.dest = elem.get_string("dest");
             ae.userdir = elem.get_bool_flex("userdir");
+            ae.binary = elem.get_bool_flex("binary");
+            if (elem.get_octal_mode("chmod", ae.mode) < 0)
+                ae.mode = -1;
+            ae.chown_user = elem.get_bool_flex("chown_user");
             pe.artifacts.push_back(ae);
         }
 
         if (val.has("symlink")) pe.symlink = val.get_bool_flex("symlink");
+        if (val.get_octal_mode("chmod", pe.mode) < 0)
+            pe.mode = -1;
+        pe.chown_user = val.get_bool_flex("chown_user");
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);

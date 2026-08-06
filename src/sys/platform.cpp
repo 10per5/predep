@@ -10,8 +10,11 @@
 #include <sstream>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <grp.h>
 #endif
 #include <unistd.h>
+#include <sys/stat.h>
 #include <openssl/evp.h>
 
 namespace fs = std::filesystem;
@@ -253,6 +256,46 @@ std::string to_string(platform_type p)
         case platform_type::darwin:  return "darwin";
         default: return "linux";
     }
+}
+
+int file_mode(const std::string &path)
+{
+#ifndef _WIN32
+    struct stat st;
+    if (::stat(path.c_str(), &st) != 0)
+        return -1;
+    return static_cast<int>(st.st_mode & 0777);
+#else
+    (void)path;
+    return -1;
+#endif
+}
+
+gid_t install_group()
+{
+#if !defined(_WIN32)
+    // Prefer a well-known shared "users" group when it exists; otherwise fall
+    // back to gid 1. Files transferred via chown_user end up owned by
+    // uid:install_group() so they match what a normal login session would see.
+    if (auto *gr = ::getgrnam("users"))
+        return gr->gr_gid;
+    return static_cast<gid_t>(1);
+#else
+    return static_cast<gid_t>(0);
+#endif
+}
+
+bool file_matches_ownership(const std::string &path)
+{
+#ifndef _WIN32
+    struct stat st;
+    if (::stat(path.c_str(), &st) != 0)
+        return true; // can't inspect → don't block re-install
+    return st.st_uid == ::getuid() && st.st_gid == install_group();
+#else
+    (void)path;
+    return true;
+#endif
 }
 
 }
