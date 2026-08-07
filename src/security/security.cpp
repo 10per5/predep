@@ -49,9 +49,21 @@ bool security::check_root_sudo(const runtime &ctx, std::string &error)
 
 bool security::is_in_root(const runtime &ctx, const std::string &resolved)
 {
-    auto n = ctx.root.size();
-    return resolved == ctx.root
-        || (resolved.size() > n && resolved.compare(0, n, ctx.root) == 0 && resolved[n] == '/');
+    namespace fs = std::filesystem;
+
+    auto root = fs::path(ctx.root).lexically_normal();
+    auto path = fs::path(resolved).lexically_normal();
+
+    if (path == root)
+        return true;
+
+    std::error_code ec;
+    auto rel = fs::relative(path, root, ec);
+    if (ec)
+        return false;
+
+    auto s = rel.string();
+    return !s.empty() && s[0] != '.';
 }
 
 bool security::check_path_safety(
