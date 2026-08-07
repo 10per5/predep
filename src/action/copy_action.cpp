@@ -104,10 +104,11 @@ static bool validate_copy_path(const runtime &ctx, const std::string &raw,
 // Path relative to the project root for display (mirrors `${dst#$ROOT/}`).
 static std::string root_rel(const runtime &ctx, const std::string &p)
 {
+    namespace fs = std::filesystem;
     if (p.rfind(ctx.root, 0) == 0)
     {
         auto rel = p.substr(ctx.root.size());
-        if (!rel.empty() && rel[0] == '/')
+        if (!rel.empty() && (rel[0] == '/' || rel[0] == fs::path::preferred_separator))
             rel = rel.substr(1);
         return rel;
     }
