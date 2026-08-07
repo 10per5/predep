@@ -276,6 +276,7 @@ gid_t install_group()
 {
     if (auto *gr = ::getgrnam("users"))
         return gr->gr_gid;
+
     return static_cast<gid_t>(1);
 }
 #endif
