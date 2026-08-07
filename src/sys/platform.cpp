@@ -271,19 +271,14 @@ int file_mode(const std::string &path)
 #endif
 }
 
+#ifndef _WIN32
 gid_t install_group()
 {
-#if !defined(_WIN32)
-    // Prefer a well-known shared "users" group when it exists; otherwise fall
-    // back to gid 1. Files transferred via chown_user end up owned by
-    // uid:install_group() so they match what a normal login session would see.
     if (auto *gr = ::getgrnam("users"))
         return gr->gr_gid;
     return static_cast<gid_t>(1);
-#else
-    return static_cast<gid_t>(0);
-#endif
 }
+#endif
 
 bool file_matches_ownership(const std::string &path)
 {
