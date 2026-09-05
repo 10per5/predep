@@ -31,6 +31,9 @@ class download_action : public action
                          runtime &ctx,
                          std::string &error,
                          const std::string &type_label);
+    static bool resolve_git(fetch_entry &fe,
+                            const std::map<std::string, std::string> &stage_vars,
+                            runtime &ctx, std::string &error);
 
 public:
     static fetch_entry parse_entry(config_node &elem, const std::string &default_dest);

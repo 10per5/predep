@@ -4,6 +4,7 @@
 #include "sys/extract.h"
 #include "logger/logger.h"
 #include "sys/platform.h"
+#include "sys/process.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +77,86 @@ download_action::resolved_entry download_action::resolve_entry(
     return r;
 }
 
+static bool is_git_entry(const fetch_entry &fe) { return !fe.repo.empty(); }
+
+static bool git_run(const std::vector<std::string> &args, const std::string &cwd,
+                    runtime &ctx, const std::string &what, std::string &error)
+{
+    auto res = process::run_with_err("git", args, cwd);
+    if (res.code != 0)
+    {
+        if (!res.err.empty())
+            ctx.logger->error(res.err);
+        error = "git " + what + " failed";
+        return false;
+    }
+    return true;
+}
+
+// Pull a git repo and pin it to an exact ref (SHA or tag). Idempotent via a
+// `.predepgit` marker that records the resolved ref.
+bool download_action::resolve_git(fetch_entry &fe,
+                                  const std::map<std::string, std::string> &stage_vars,
+                                  runtime &ctx, std::string &error)
+{
+    auto rv = download_action::resolve_entry(fe, stage_vars, ctx);
+    auto ref = config_loader::interpolate(fe.ref, rv.vars);
+    auto repo = config_loader::interpolate(fe.repo, rv.vars);
+    auto dest = fs::path(rv.base);
+    auto dest_str = dest.string();
+    auto marker = (dest / ".predepgit").string();
+
+    if (platform::file_exists(marker))
+    {
+        std::ifstream f(marker);
+        std::string stored;
+        std::getline(f, stored);
+        if (stored == ref)
+        {
+            ctx.logger->info("vendor " + fe.name + " already at " + ref);
+            return true;
+        }
+        ctx.logger->info("vendor " + fe.name + " ref changed, re-fetching");
+        fs::remove_all(dest);
+    }
+
+    fs::create_directories(dest.parent_path());
+
+    std::vector<std::string> args = {"clone"};
+    if (fe.depth > 0)
+    {
+        args.push_back("--depth");
+        args.push_back(std::to_string(fe.depth));
+    }
+    if (fe.submodules)
+        args.push_back("--recursive");
+    args.push_back(repo);
+    args.push_back(dest_str);
+
+    if (!git_run(args, dest.parent_path().string(), ctx, "clone " + fe.name, error))
+        return false;
+
+    // Checkout the pinned ref. A full 40-hex SHA may be absent from a shallow
+    // clone, so fetch it explicitly first when checkout fails.
+    auto checkout = process::run_with_err("git", {"-C", dest_str, "checkout", ref}, "");
+    if (checkout.code != 0)
+    {
+        if (!git_run({"-C", dest_str, "fetch", "origin", ref}, "", ctx,
+                     "fetch " + fe.name, error))
+            return false;
+        if (!git_run({"-C", dest_str, "checkout", ref}, "", ctx,
+                     "checkout " + fe.name, error))
+            return false;
+    }
+
+    {
+        std::ofstream f(marker);
+        f << ref << "\n";
+    }
+    ctx.logger->info("vendor " + fe.name + " pinned to " + ref);
+    return true;
+}
+
 fetch_entry download_action::parse_entry(
     config_node &elem, const std::string &default_dest)
 {
@@ -88,6 +169,13 @@ fetch_entry download_action::parse_entry(
     fe.extract = elem.get_bool_flex("extract");
     fe.create_directory = elem.get_bool_flex("create_directory");
     fe.output_name = elem.get_string("output_name");
+
+    // Git source acquisition (alternative to url/sha256 archive download)
+    fe.repo = elem.get_string("repo");
+    fe.ref = elem.get_string("ref");
+    fe.depth = (int)elem.get_int("depth", 0);
+    fe.submodules = elem.get_bool_flex("submodules", false);
+    fe.builder = elem.get_string("builder");
 
     auto parse_str_or_arr = [&](const std::string &key, std::vector<std::string> &out)
     {
@@ -154,6 +242,21 @@ bool download_action::check_entries(
     {
         auto fe = fe_orig.for_platform(ctx.platform);
         auto rv = resolve_entry(fe, stage_vars, ctx);
+
+        if (is_git_entry(fe))
+        {
+            auto marker = (fs::path(rv.base) / ".predepgit").string();
+            if (!platform::file_exists(marker))
+                return false;
+            std::ifstream f(marker);
+            std::string stored;
+            std::getline(f, stored);
+            auto ref = config_loader::interpolate(fe.ref, rv.vars);
+            if (stored != ref)
+                return false;
+            continue;
+        }
+
         if (fe.extract)
         {
             auto extract_dir = fe.create_directory ? (fs::path(rv.base) / fe.name).string() : rv.base;
@@ -198,6 +301,13 @@ bool download_action::resolve_entries(
     {
         auto fe = fe_orig.for_platform(ctx.platform);
         auto rv = resolve_entry(fe, stage_vars, ctx);
+
+        if (is_git_entry(fe))
+        {
+            if (!resolve_git(fe, stage_vars, ctx, error))
+                return false;
+            continue;
+        }
 
         if (fe.extract)
         {

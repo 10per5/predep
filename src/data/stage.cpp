@@ -15,6 +15,7 @@ stage_type stage_from_string(const std::string &s)
     if (s == "uninstall") return stage_type::uninstall;
     if (s == "clean")     return stage_type::clean;
     if (s == "copy")      return stage_type::copy;
+    if (s == "cmake")     return stage_type::cmake;
     if (s == "disabled")  return stage_type::disabled;
     return stage_type::disabled;
 }
@@ -37,6 +38,7 @@ std::string to_string(stage_type t)
         case stage_type::uninstall: return "uninstall";
         case stage_type::clean:    return "clean";
         case stage_type::copy:     return "copy";
+        case stage_type::cmake:    return "cmake";
     }
     return "disabled";
 }

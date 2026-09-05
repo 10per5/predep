@@ -15,7 +15,7 @@ class Prompter;
 
 // ---- Stage type enum ----
 
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy, cmake };
 
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
@@ -49,6 +49,13 @@ struct fetch_entry
     std::vector<std::string> include;
     std::vector<std::string> exclude;
     std::map<std::string, std::string> vars;
+
+    // Git source acquisition (alternative to url/sha256 archive download)
+    std::string repo;        // git URL (presence ⇒ git entry)
+    std::string ref;         // pinned SHA or tag
+    int depth = 0;           // shallow clone depth (0 = full)
+    bool submodules = false;
+    std::string builder;     // name of the stage that builds this vendor entry
 
     // Per-platform overrides applied on top of defaults at resolution time.
     std::map<platform_type, platform_entry<fetch_entry>> platform;
@@ -105,6 +112,10 @@ inline fetch_entry fetch_entry::for_platform(platform_type pt) const
     if (!o.include.empty())          r.include = o.include;
     if (!o.exclude.empty())          r.exclude = o.exclude;
     for (auto &[k, v] : o.vars)      r.vars[k] = v;
+    if (!o.repo.empty())             r.repo = o.repo;
+    if (!o.ref.empty())              r.ref = o.ref;
+    if (o.submodules)                r.submodules = o.submodules;
+    if (!o.builder.empty())          r.builder = o.builder;
     r.platform.clear();
     return r;
 }
@@ -150,6 +161,28 @@ struct premake5_data : buildable_data
 {
     premake5_entry defaults;
     std::map<platform_type, platform_entry<premake5_entry>> platform;
+};
+
+// Generic cmake build stage: configure → build → install. Reusable for vendors
+// and any cmake project. Flags are expressed structurally (no raw args array).
+struct cmake_entry
+{
+    std::string source;                    // source dir (e.g. root://vendor/corrade)
+    std::string build_dir;                 // default: <source>/build
+    std::string config = "Release";        // CMAKE_BUILD_TYPE
+    std::string installPrefix;             // → CMAKE_INSTALL_PREFIX (default <source>/prefix)
+    std::vector<std::string> flagsOn;          // → -D<flag>=ON
+    std::vector<std::string> flagsOff;         // → -D<flag>=OFF
+    std::vector<std::string> configurable;     // → -D<KEY>=<VALUE> (entries are "KEY=VALUE")
+    std::vector<std::string> installPrefixVars; // → -D<var>=<installPrefix> (e.g. CORRADE_ROOT)
+    std::vector<std::string> targets;          // empty = default target
+    bool install = true;
+};
+
+struct cmake_data : buildable_data
+{
+    cmake_entry defaults;
+    std::map<platform_type, platform_entry<cmake_entry>> platform;
 };
 
 struct package_data : stage_data
