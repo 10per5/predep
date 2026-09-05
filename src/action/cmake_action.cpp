@@ -4,7 +4,9 @@
 #include "security/security.h"
 #include "sys/process.h"
 #include "sys/platform.h"
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <string>
@@ -29,6 +31,77 @@ std::map<std::string, std::string> build_vars(const runtime &ctx)
 #endif
     return v;
 }
+
+// Apply platform overrides onto a cmake entry (mirrors resolve()'s merge so the
+// idempotency signature matches what actually gets built).
+void merge_cmake_platform(cmake_entry &e, const cmake_data &d, platform_type pt)
+{
+    auto pit = d.platform.find(pt);
+    if (pit == d.platform.end()) return;
+    auto &p = pit->second;
+    if (!p.source.empty())        e.source = p.source;
+    if (!p.build_dir.empty())     e.build_dir = p.build_dir;
+    if (!p.config.empty())        e.config = p.config;
+    if (!p.installPrefix.empty()) e.installPrefix = p.installPrefix;
+    e.flagsOn.insert(e.flagsOn.end(), p.flagsOn.begin(), p.flagsOn.end());
+    e.flagsOff.insert(e.flagsOff.end(), p.flagsOff.begin(), p.flagsOff.end());
+    e.configurable.insert(e.configurable.end(), p.configurable.begin(), p.configurable.end());
+    e.installPrefixVars.insert(e.installPrefixVars.end(), p.installPrefixVars.begin(), p.installPrefixVars.end());
+    e.targets.insert(e.targets.end(), p.targets.begin(), p.targets.end());
+}
+
+std::string resolved_build_dir(const cmake_entry &e, const runtime &ctx)
+{
+    if (!e.build_dir.empty())
+        return config_loader::interpolate(ctx.resolve_path(e.build_dir), build_vars(ctx));
+    auto source = config_loader::interpolate(ctx.resolve_path(e.source), build_vars(ctx));
+    return (fs::path(source) / "build").string();
+}
+
+// Signature of everything that affects this stage's build output. Recorded in a
+// per-build_dir marker so a shared install prefix never shadows a sibling stage.
+std::string cmake_signature(const cmake_entry &e, const runtime &ctx)
+{
+    auto vars = build_vars(ctx);
+    auto source = config_loader::interpolate(ctx.resolve_path(e.source), vars);
+    auto build_dir = resolved_build_dir(e, ctx);
+    auto prefix = !e.installPrefix.empty()
+        ? config_loader::interpolate(ctx.resolve_path(e.installPrefix), vars)
+        : (fs::path(source) / "prefix").string();
+
+    // Pin the vendor ref (git marker) into the signature: a repo ref change
+    // invalidates this build and forces a rebuild.
+    std::string ref;
+    auto git_marker = (fs::path(source) / ".predepgit").string();
+    if (platform::file_exists(git_marker))
+    {
+        std::ifstream f(git_marker);
+        std::getline(f, ref);
+    }
+
+    auto join = [](std::vector<std::string> v)
+    {
+        std::sort(v.begin(), v.end());
+        std::string out;
+        for (auto &x : v) out += x + "\n";
+        return out;
+    };
+
+    std::string sig;
+    sig += "source=" + source + "\n";
+    sig += "build=" + build_dir + "\n";
+    sig += "prefix=" + prefix + "\n";
+    sig += "config=" + e.config + "\n";
+    sig += "install=" + std::to_string(e.install) + "\n";
+    sig += "flagsOn=\n" + join(e.flagsOn);
+    sig += "flagsOff=\n" + join(e.flagsOff);
+    sig += "configurable=\n" + join(e.configurable);
+    sig += "installPrefixVars=\n" + join(e.installPrefixVars);
+    sig += "targets=\n" + join(e.targets);
+    sig += "ref=" + ref + "\n";
+    return sig;
+}
+
 }
 
 void cmake_action::parse(config_node &cfg, cmake_data &d)
@@ -86,18 +159,7 @@ bool cmake_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto pit = d->platform.find(ctx.platform);
     bool has_plat = pit != d->platform.end();
     if (has_plat)
-    {
-        auto &p = pit->second;
-        if (!p.source.empty())        e.source = p.source;
-        if (!p.build_dir.empty())     e.build_dir = p.build_dir;
-        if (!p.config.empty())        e.config = p.config;
-        if (!p.installPrefix.empty()) e.installPrefix = p.installPrefix;
-        e.flagsOn.insert(e.flagsOn.end(), p.flagsOn.begin(), p.flagsOn.end());
-        e.flagsOff.insert(e.flagsOff.end(), p.flagsOff.begin(), p.flagsOff.end());
-        e.configurable.insert(e.configurable.end(), p.configurable.begin(), p.configurable.end());
-        e.installPrefixVars.insert(e.installPrefixVars.end(), p.installPrefixVars.begin(), p.installPrefixVars.end());
-        e.targets.insert(e.targets.end(), p.targets.begin(), p.targets.end());
-    }
+        merge_cmake_platform(e, *d, ctx.platform);
 
     if (!security::confirm_build_context(sd, d->build_context, "", ctx, error))
         return false;
@@ -109,9 +171,7 @@ bool cmake_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
 
     auto vars = build_vars(ctx);
     auto source = config_loader::interpolate(ctx.resolve_path(e.source), vars);
-    auto build_dir = !e.build_dir.empty()
-        ? config_loader::interpolate(ctx.resolve_path(e.build_dir), vars)
-        : (fs::path(source) / "build").string();
+    auto build_dir = resolved_build_dir(e, ctx);
     auto prefix = !e.installPrefix.empty()
         ? config_loader::interpolate(ctx.resolve_path(e.installPrefix), vars)
         : (fs::path(source) / "prefix").string();
@@ -165,6 +225,9 @@ bool cmake_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             return false;
         }
     }
+
+    auto marker = (fs::path(build_dir) / ".predepcmake").string();
+    { std::ofstream f(marker); f << cmake_signature(e, ctx); }
     return true;
 }
 
@@ -179,34 +242,17 @@ bool cmake_action::is_resolved(const stage_desc &sd, runtime &ctx) const
     if (!d) return false;
 
     auto e = d->defaults;
-    auto pit = d->platform.find(ctx.platform);
-    if (pit != d->platform.end())
-    {
-        auto &p = pit->second;
-        if (!p.installPrefix.empty()) e.installPrefix = p.installPrefix;
-        if (!p.source.empty())       e.source = p.source;
-    }
+    merge_cmake_platform(e, *d, ctx.platform);
 
-    auto prefix = !e.installPrefix.empty()
-        ? ctx.resolve_path(e.installPrefix)
-        : (ctx.resolve_path(e.source) + "/prefix");
-    if (e.install)
-    {
-        if (!platform::dir_exists(prefix))
-            return false;
-        bool any = false;
-        std::error_code ec;
-        for (auto it = fs::recursive_directory_iterator(prefix, ec);
-             it != fs::recursive_directory_iterator(); ++it)
-        {
-            any = true;
-            break;
-        }
-        return any;
-    }
-
-    auto build_dir = !e.build_dir.empty()
-        ? ctx.resolve_path(e.build_dir)
-        : (ctx.resolve_path(e.source) + "/build");
-    return platform::dir_exists(build_dir);
+    // Idempotency marker (per build_dir, so stages sharing an install prefix
+    // don't shadow each other). Records the resolved inputs — including the
+    // pinned vendor ref — so any change forces a rebuild.
+    auto build_dir = resolved_build_dir(e, ctx);
+    auto marker = (fs::path(build_dir) / ".predepcmake").string();
+    if (!platform::file_exists(marker))
+        return false;
+    auto sig = cmake_signature(e, ctx);
+    std::ifstream f(marker);
+    std::string stored((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return stored == sig;
 }
