@@ -19,6 +19,7 @@ parsed_args parse_args(int argc, char **argv)
     app.add_option("--os", args.target_os, "Target OS for packaging");
     app.add_flag("--version", args.version, "Show version and exit");
     app.add_flag("--list", args.list, "List available stages");
+    app.add_flag("--audit", args.audit, "Print stage dependency tree (audit view)");
     app.add_option("--format", args.format, "Output format: auto, mono, minified, none");
     app.add_option("--jobs,-j", args.jobs, "Max concurrent stages (default 1, WIP)");
     app.add_option("--parent-limit", args.parent_limit,

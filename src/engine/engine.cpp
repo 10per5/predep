@@ -108,6 +108,14 @@ std::string engine::main_stage() const
     return m_impl->main_stage_name;
 }
 
+std::vector<stage_view> engine::stage_views() const
+{
+    std::vector<stage_view> out;
+    for (auto &[name, sd] : m_impl->stages)
+        out.push_back({name, sd.type, sd.depends, sd.source_file});
+    return out;
+}
+
 std::string engine::last_error() const
 {
     return m_impl->error;

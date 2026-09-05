@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 int main(int argc, char **argv)
@@ -72,6 +74,97 @@ int main(int argc, char **argv)
     }
 
     auto main_name = eng.main_stage();
+
+    if (args.audit)
+    {
+        auto views = eng.stage_views();
+        std::unordered_map<std::string, const stage_view*> by_name;
+        for (auto &v : views) by_name[v.name] = &v;
+
+        std::unordered_map<std::string, std::vector<std::string>> dependents;
+        for (auto &v : views)
+            for (auto &dep : v.depends)
+                dependents[dep].push_back(v.name);
+
+        // Informational-only risk hint (does not affect privileged behavior).
+        auto danger = [](stage_type t) -> std::string {
+            switch (t) {
+                case stage_type::run:       return " [high: shell]";
+                case stage_type::install:
+                case stage_type::uninstall: return " [high: sudo]";
+                case stage_type::docker:    return " [high: docker]";
+                case stage_type::binary:    return " [med: binary]";
+                case stage_type::premake5:
+                case stage_type::cmake:     return " [med: build]";
+                case stage_type::vendor:
+                case stage_type::fetch:
+                case stage_type::resource:  return " [med: network]";
+                case stage_type::clean:     return " [med: delete]";
+                default:                    return "";
+            }
+        };
+
+        // `on_path` is a path stack for real cycle (back-edge) detection only;
+        // shared/diamond deps are drawn as normal children each time they appear.
+        std::function<void(const std::string &, const std::string &, bool,
+                           std::set<std::string> &)>
+            print_tree = [&](const std::string &name, const std::string &prefix,
+                            bool last, std::set<std::string> &on_path)
+        {
+            auto it = by_name.find(name);
+            if (it == by_name.end())
+            {
+                std::cout << prefix << (last ? "└─ " : "├─ ") << name << "  (unknown)\n";
+                return;
+            }
+            if (on_path.count(name))
+            {
+                std::cout << prefix << (last ? "└─ " : "├─ ") << name
+                          << "  (" << to_string(it->second->type) << ")  (cycle)\n";
+                return;
+            }
+            on_path.insert(name);
+            const auto &v = *it->second;
+            std::cout << prefix << (last ? "└─ " : "├─ ") << name
+                      << "  (" << to_string(v.type) << ")" << danger(v.type) << "\n";
+            std::string child_prefix = prefix + (last ? "   " : "│  ");
+            for (size_t i = 0; i < v.depends.size(); ++i)
+                print_tree(v.depends[i], child_prefix, i + 1 == v.depends.size(),
+                           on_path);
+            on_path.erase(name);
+        };
+
+        std::string focus = args.command;
+        std::cout << "Stage audit\n";
+        if (!focus.empty() && by_name.count(focus))
+        {
+            std::cout << "Subtree for '" << focus << "':\n";
+            std::set<std::string> on_path;
+            print_tree(focus, "", true, on_path);
+        }
+        else
+        {
+            std::set<std::string> roots;
+            for (auto &v : views)
+                if (dependents[v.name].empty())
+                    roots.insert(v.name);
+            std::set<std::string> on_path;
+            if (!roots.empty())
+            {
+                std::cout << "Entry points (stages nothing depends on):\n";
+                size_t n = 0;
+                for (auto &r : roots)
+                    print_tree(r, "", ++n == roots.size(), on_path);
+            }
+            else
+            {
+                std::cout << "No entry points found (all stages have dependents):\n";
+                for (auto &v : views)
+                    std::cout << "  " << v.name << " (" << to_string(v.type) << ")" << danger(v.type) << "\n";
+            }
+        }
+        return 0;
+    }
 
     if (args.list)
     {
