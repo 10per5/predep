@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <regex>
 
 static void show_progress(const std::string &label, size_t downloaded, size_t total)
 {
@@ -32,6 +33,40 @@ static void show_progress(const std::string &label, size_t downloaded, size_t to
 
     if (downloaded >= total)
         std::cerr << "\n  " << label << ": done.\n";
+}
+
+// Renders one git progress segment (e.g. "Receiving objects:  42% (12/29)")
+// as a bar. Returns true once a bar has been drawn.
+static bool git_show_progress(const std::string &name, const std::string &seg, bool drawn)
+{
+    static const std::regex prog(R"(^(\w[\w ]*):\s+(\d+)% \((\d+)/(\d+)\))");
+    std::smatch m;
+    if (!std::regex_search(seg, m, prog))
+        return drawn;
+
+    auto phase = m[1].str();
+    long cur = std::stol(m[3]);
+    long tot = std::stol(m[4]);
+    if (tot == 0)
+        return drawn;
+
+    int pct = static_cast<int>(cur * 100 / tot);
+    int bar = 40;
+    int pos = pct * bar / 100;
+
+    std::string line = "  " + name + " " + phase + ": [";
+    for (int i = 0; i < bar; i++)
+        line += (i < pos ? '=' : (i == pos && pos < bar ? '>' : ' '));
+    line += "] ";
+    if (pct < 10) line += "  ";
+    else if (pct < 100) line += " ";
+    line += std::to_string(pct) + "%";
+
+    if (line.size() < 79)
+        line.append(79 - line.size(), ' ');
+
+    std::cerr << '\r' << line << std::flush;
+    return true;
 }
 
 namespace fs = std::filesystem;
@@ -122,7 +157,9 @@ bool download_action::resolve_git(fetch_entry &fe,
 
     fs::create_directories(dest.parent_path());
 
-    std::vector<std::string> args = {"clone"};
+    ctx.logger->info("Cloning " + fe.name + " from " + repo + " (" + ref + ")");
+
+    std::vector<std::string> args = {"clone", "--progress"};
     if (fe.depth > 0)
     {
         args.push_back("--depth");
@@ -133,8 +170,35 @@ bool download_action::resolve_git(fetch_entry &fe,
     args.push_back(repo);
     args.push_back(dest_str);
 
-    if (!git_run(args, dest.parent_path().string(), ctx, "clone " + fe.name, error))
+    // git only draws progress on a TTY; --progress forces it so we can parse
+    // the stderr stream and render our own bar.
+    std::string pending;
+    bool drawn = false;
+    auto on_chunk = [&](const std::string &chunk)
+    {
+        pending += chunk;
+        size_t pos;
+        while ((pos = pending.find_first_of("\r\n")) != std::string::npos)
+        {
+            auto seg = pending.substr(0, pos);
+            pending.erase(0, pos + 1);
+            drawn = git_show_progress(fe.name, seg, drawn);
+        }
+    };
+
+    auto res = process::run_with_err_stream("git", args,
+                                            dest.parent_path().string(), on_chunk);
+    drawn = git_show_progress(fe.name, pending, drawn);
+    if (drawn)
+        std::cerr << std::endl;
+
+    if (res.code != 0)
+    {
+        if (!res.err.empty())
+            ctx.logger->error(res.err);
+        error = "git clone " + fe.name + " failed";
         return false;
+    }
 
     // Checkout the pinned ref. A full 40-hex SHA may be absent from a shallow
     // clone, so fetch it explicitly first when checkout fails.
