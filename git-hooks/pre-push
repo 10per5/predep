@@ -9,7 +9,7 @@
 #   - bump X (major): Y=0, Z=0, no pW
 #   - bump Y (minor): Z=0, no pW
 #   - bump Z (patch): no pW
-#   - bump W (pW)   : X.Y.Z unchanged; W > prev W (or W >= 1 when prev had no pW)
+#   - bump W (pW)   : X.Y.Z unchanged; W == prev W + 1 (first sub-patch must be 1)
 #
 # Installed via `scripts/setup-hooks.sh` (sets core.hooksPath to git-hooks/).
 
@@ -62,11 +62,9 @@ valid_bump() {
         return $?
     fi
     if [ "$nw" -ne "$pw" ]; then
-        if [ "$pw" -eq 0 ]; then
-            [ "$nw" -ge 1 ]          # first sub-patch must be >= 1 (prefer 1)
-        else
-            [ "$nw" -gt "$pw" ]
-        fi
+        # sub-patch bump: X.Y.Z unchanged and W must be exactly prev W + 1
+        # (the first sub-patch, prev had no pW, resolves to pw=0 so W must be 1)
+        [ "$nw" -eq $((pw + 1)) ]
         return $?
     fi
     return 1                        # identical version is not a bump
@@ -114,7 +112,7 @@ while read -r local_ref local_oid remote_ref remote_oid; do
             if ! valid_bump "$prev_ver" "$new_ver"; then
                 echo "  rejected commit $commit" >&2
                 echo "    version $(fmt_version "$new_ver") is not a valid bump over $(fmt_version "$prev_ver")" >&2
-                echo "    rules: bump X=Y=0,Z=0,no pW; bump Y=Z=0,no pW; bump Z=no pW; bump pW=X.Y.Z unchanged & W>prev" >&2
+                echo "    rules: bump X=Y=0,Z=0,no pW; bump Y=Z=0,no pW; bump Z=no pW; bump pW=X.Y.Z unchanged & W=prev+1" >&2
                 reject=1
             fi
         fi
