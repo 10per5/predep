@@ -204,6 +204,11 @@ Each entry supports:
 | `variables` | Per-entry variable inline table |
 | `include` | Glob patterns to filter extracted files (string or array) |
 | `exclude` | Glob patterns to exclude from extraction (string or array) |
+| `repo` | Git URL — puts the entry in git mode (ignores `url`/`sha256`) |
+| `ref` | Pinned git ref (40-hex SHA, tag, or branch) |
+| `depth` | `0` | Shallow-clone depth (`0` = full clone) |
+| `submodules` | `false` | Clone with `--recursive` |
+| `builder` | — | Build stage name to auto-wire as a dependency |
 
 Example:
 
@@ -215,6 +220,38 @@ sha256 = "6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e"
 dest = "root://vendor/"
 create_directory = true
 ```
+
+### Git source acquisition (repo + ref)
+
+Instead of `url`/`sha256`, a `[[vendor]]` entry can clone a git repo and pin it
+to an exact ref. Presence of `repo` puts the entry in **git mode** (URL/sha256
+are ignored):
+
+```toml
+[[vendor]]
+name = "corrade"
+repo = "https://github.com/mosra/corrade.git"
+ref  = "c028fd6e261a0665f72fbc75c7c034baf47747c6"   # 40-hex SHA, tag, or branch
+dest = "root://vendor/corrade"
+depth = 0              # shallow-clone depth (0 = full)
+submodules = false     # pass --recursive
+builder = "corrade-cmake"   # link to the build stage that compiles it
+```
+
+| Field | Default | Description |
+| ----- | ------- | ----------- |
+| `repo` | — | Git URL. Switches entry to git mode. |
+| `ref` | — | Pinned ref: 40-hex SHA, tag (`v1.2.3`), or branch (`main`) |
+| `depth` | `0` | Shallow-clone depth (`1` = branch tip only) |
+| `submodules` | `false` | Clone with `--recursive` |
+| `builder` | — | Build stage name (links dependency; see stages/building) |
+
+predep runs `git clone` then `git checkout <ref>`, recording the resolved ref in
+a `<dest>/.predepgit` marker. A subsequent run skips when the marker matches, and
+re-clones on mismatch. For full details see `skills/vendor-git-ref.md`.
+
+The shared vendor entry fields (`dest`, `create_directory`, `version`,
+`variables`, `builder`) apply in both archive and git modes.
 
 ### Root-level fetch entries
 

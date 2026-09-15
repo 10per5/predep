@@ -9,6 +9,7 @@
 #include "action/uninstall_action.h"
 #include "action/clean_action.h"
 #include "action/copy_action.h"
+#include "action/cmake_action.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -260,6 +261,22 @@ static void parse_stages(
             copy_action::parse(elem, *d);
             sd.data = std::move(d);
         }
+        else if (sd.type == stage_type::cmake)
+        {
+            auto d = std::make_unique<cmake_data>();
+            cmake_action::parse(elem, *d);
+
+            auto outs = elem.get_array("outputs");
+            for (auto &out : outs)
+                d->outputs.push_back(out.as_string());
+            d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
+
+            sd.data = std::move(d);
+        }
         else if (sd.type == stage_type::disabled)
         {
             sd.data = std::make_unique<group_data>();
@@ -476,6 +493,29 @@ static void parse_stages(
                                     cf.dests.push_back(dd.as_string());
                                 pe.files.push_back(std::move(cf));
                             }
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::cmake:
+                        {
+                            auto *d = dynamic_cast<cmake_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<cmake_entry> pe;
+                            auto src = sv.get_string("source");
+                            if (!src.empty()) pe.source = src;
+                            auto bd = sv.get_string("build_dir");
+                            if (!bd.empty()) pe.build_dir = bd;
+                            auto cf = sv.get_string("config");
+                            if (!cf.empty()) pe.config = cf;
+                            auto ip = sv.get_string("installPrefix");
+                            if (!ip.empty()) pe.installPrefix = ip;
+                            if (sv.has("install")) pe.install = sv.get_bool_flex("install");
+                            for (auto &a : sv.get_array("flagsOn"))          pe.flagsOn.push_back(a.as_string());
+                            for (auto &a : sv.get_array("flagsOff"))         pe.flagsOff.push_back(a.as_string());
+                            for (auto &a : sv.get_array("configurable"))     pe.configurable.push_back(a.as_string());
+                            for (auto &a : sv.get_array("installPrefixVars")) pe.installPrefixVars.push_back(a.as_string());
+                            for (auto &a : sv.get_array("targets"))          pe.targets.push_back(a.as_string());
+                            pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
                         }
@@ -744,6 +784,32 @@ bool config_loader::load(const std::string &path)
         m_config_files.push_back(full);
         if (!add_single_toml(m_stages, m_config_dir, m_error, full, inc_dir, ns, only, m_project))
             return false;
+    }
+
+    // Wire vendor `builder` links: a vendor entry's builder stage must run after
+    // the (source-pulling) vendor stage that provides its input.
+    for (auto &[vname, vsd] : m_stages)
+    {
+        if (vsd.type != stage_type::vendor)
+            continue;
+        auto *dd = dynamic_cast<download_data*>(vsd.data.get());
+        if (!dd)
+            continue;
+        for (auto &fe : dd->entries)
+        {
+            if (fe.builder.empty())
+                continue;
+            auto it = m_stages.find(fe.builder);
+            if (it == m_stages.end())
+            {
+                m_error = "vendor entry '" + fe.name + "' references unknown builder stage '"
+                        + fe.builder + "'";
+                return false;
+            }
+            auto &bsd = it->second;
+            if (std::find(bsd.depends.begin(), bsd.depends.end(), vname) == bsd.depends.end())
+                bsd.depends.push_back(vname);
+        }
     }
 
     return true;

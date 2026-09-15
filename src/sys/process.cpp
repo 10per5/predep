@@ -64,6 +64,13 @@ int run(const std::string &cmd, const std::vector<std::string> &args,
 run_result run_with_err(const std::string &cmd, const std::vector<std::string> &args,
                         const std::string &cwd)
 {
+    return run_with_err_stream(cmd, args, cwd, {});
+}
+
+run_result run_with_err_stream(const std::string &cmd, const std::vector<std::string> &args,
+                               const std::string &cwd,
+                               const std::function<void(const std::string &)> &on_chunk)
+{
     std::string cmdline = cmd;
     for (auto &a : args)
     {
@@ -98,6 +105,8 @@ run_result run_with_err(const std::string &cmd, const std::vector<std::string> &
     while (ReadFile(err_read, buf, sizeof(buf) - 1, &n, NULL) && n > 0)
     {
         buf[n] = '\0';
+        if (on_chunk)
+            on_chunk(std::string(buf, n));
         err += buf;
     }
     CloseHandle(err_read);
@@ -272,6 +281,13 @@ int run(const std::string &cmd, const std::vector<std::string> &args,
 run_result run_with_err(const std::string &cmd, const std::vector<std::string> &args,
                         const std::string &cwd)
 {
+    return run_with_err_stream(cmd, args, cwd, {});
+}
+
+run_result run_with_err_stream(const std::string &cmd, const std::vector<std::string> &args,
+                               const std::string &cwd,
+                               const std::function<void(const std::string &)> &on_chunk)
+{
     std::vector<const char *> argv;
     argv.push_back(cmd.c_str());
     for (auto &a : args)
@@ -306,6 +322,8 @@ run_result run_with_err(const std::string &cmd, const std::vector<std::string> &
     while ((n = read(err_pipe[0], buf, sizeof(buf) - 1)) > 0)
     {
         buf[n] = '\0';
+        if (on_chunk)
+            on_chunk(std::string(buf, n));
         err += buf;
     }
     close(err_pipe[0]);
