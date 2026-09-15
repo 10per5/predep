@@ -1,18 +1,76 @@
 #!/usr/bin/env bash
 #
 # pre-push hook: enforce that every commit pushed to `main` follows the
-# required subject format:  build(<scope>): <message>
+# required subject format AND is a valid version bump:
 #
-# Commits with any other prefix (e.g. "feat:", "fix:", "WIP") are rejected
-# before they ever reach the remote. Pushes to other branches are not checked.
+#   build(vX.Y.Z[pW]): <message>
+#
+# Version rules (relative to the previous build(v...) commit on main):
+#   - bump X (major): Y=0, Z=0, no pW
+#   - bump Y (minor): Z=0, no pW
+#   - bump Z (patch): no pW
+#   - bump W (pW)   : X.Y.Z unchanged; W > prev W (or W >= 1 when prev had no pW)
 #
 # Installed via `scripts/setup-hooks.sh` (sets core.hooksPath to git-hooks/).
 
 set -euo pipefail
 
 MAIN_REF="refs/heads/main"
-PATTERN='^build\([^()]*\): .+'
+PATTERN='^build\(v[0-9]+\.[0-9]+\.[0-9]+(p[0-9]+)?\): .+'
 ZERO="0000000000000000000000000000000000000000"
+
+# Parse "build(vX.Y.Z[pW]): ..." -> "X Y Z W" (W is '-' when absent).
+parse_version() {
+    local s="$1"
+    local ver
+    ver="$(printf '%s' "$s" | sed -n 's/^build(\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(p[0-9][0-9]*\)\?\)):.*/\1/p')"
+    [ -z "$ver" ] && { printf '%s' "- - - -"; return; }
+    local base w
+    base="${ver%%p*}"          # vX.Y.Z
+    if [ "$ver" = "$base" ]; then w="-"; else w="${ver##*p}"; fi
+    base="${base#v}"
+    local X Y Z rest
+    X="${base%%.*}"; rest="${base#*.}"; Y="${rest%%.*}"; Z="${rest#*.}"
+    printf '%s %s %s %s' "$X" "$Y" "$Z" "$w"
+}
+
+# Render "X Y Z W" back to a readable version string.
+fmt_version() {
+    local X Y Z W; IFS=' ' read -r X Y Z W <<< "$1"
+    if [ "$W" = "-" ] || [ -z "$W" ]; then printf 'v%s.%s.%s' "$X" "$Y" "$Z"
+    else printf 'v%s.%s.%sp%s' "$X" "$Y" "$Z" "$W"; fi
+}
+
+# Validate new version ($2) is a legal bump over previous ($1).
+valid_bump() {
+    local px py pz pw nx ny nz nw
+    IFS=' ' read -r px py pz pw <<< "$1"
+    IFS=' ' read -r nx ny nz nw <<< "$2"
+    [ "$pw" = "-" ] && pw=0
+    [ "$nw" = "-" ] && nw=0
+
+    if [ "$nx" -ne "$px" ]; then
+        [ "$nx" -gt "$px" ] && [ "$ny" -eq 0 ] && [ "$nz" -eq 0 ] && [ "$nw" -eq 0 ]
+        return $?
+    fi
+    if [ "$ny" -ne "$py" ]; then
+        [ "$ny" -gt "$py" ] && [ "$nz" -eq 0 ] && [ "$nw" -eq 0 ]
+        return $?
+    fi
+    if [ "$nz" -ne "$pz" ]; then
+        [ "$nz" -gt "$pz" ] && [ "$nw" -eq 0 ]
+        return $?
+    fi
+    if [ "$nw" -ne "$pw" ]; then
+        if [ "$pw" -eq 0 ]; then
+            [ "$nw" -ge 1 ]          # first sub-patch must be >= 1 (prefer 1)
+        else
+            [ "$nw" -gt "$pw" ]
+        fi
+        return $?
+    fi
+    return 1                        # identical version is not a bump
+}
 
 reject=0
 
@@ -22,25 +80,49 @@ while read -r local_ref local_oid remote_ref remote_oid; do
 
     # Range of commits being introduced on main.
     if [ "$remote_oid" = "$ZERO" ]; then
-        # New branch pushed — check everything reachable from the tip.
         range="$local_oid"
     else
         range="$remote_oid..$local_oid"
     fi
 
+    # Previous build version on main (history below the current tip).
+    prev_ver=""
+    if [ "$remote_oid" != "$ZERO" ]; then
+        while IFS= read -r subj; do
+            if printf '%s' "$subj" | grep -Eq "$PATTERN"; then
+                prev_ver="$(parse_version "$subj")"
+                break
+            fi
+        done < <(git log --format=%s "$remote_oid")
+    fi
+
+    # Validate each new commit, oldest -> newest.
     while IFS= read -r commit; do
         [ -z "$commit" ] && continue
         subject="$(git log -1 --format=%s "$commit")"
+
         if ! printf '%s' "$subject" | grep -Eq "$PATTERN"; then
             echo "  rejected commit $commit" >&2
             echo "    subject: $subject" >&2
-            echo "    expected: build(<scope>): <message>" >&2
+            echo "    expected: build(vX.Y.Z[pW]): <message>" >&2
             reject=1
+            continue
         fi
-    done < <(git rev-list "$range")
+
+        new_ver="$(parse_version "$subject")"
+        if [ -n "$prev_ver" ]; then
+            if ! valid_bump "$prev_ver" "$new_ver"; then
+                echo "  rejected commit $commit" >&2
+                echo "    version $(fmt_version "$new_ver") is not a valid bump over $(fmt_version "$prev_ver")" >&2
+                echo "    rules: bump X=Y=0,Z=0,no pW; bump Y=Z=0,no pW; bump Z=no pW; bump pW=X.Y.Z unchanged & W>prev" >&2
+                reject=1
+            fi
+        fi
+        prev_ver="$new_ver"
+    done < <(git rev-list --reverse "$range")
 done
 
 if [ "$reject" -ne 0 ]; then
-    echo "pre-push: push to 'main' rejected — every commit must follow 'build(<scope>): <message>'." >&2
+    echo "pre-push: push to 'main' rejected — commits must be 'build(vX.Y.Z[pW]): <message>' and valid version bumps." >&2
     exit 1
 fi
