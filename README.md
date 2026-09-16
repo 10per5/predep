@@ -109,7 +109,7 @@ this repo), start with the relevant skill:
 | [`skills/vendor-single-file.md`](skills/vendor-single-file.md) | Vendor a single header/file pinned with a `sha256` |
 | [`skills/vendor-git-ref.md`](skills/vendor-git-ref.md) | Vendor source from a GitHub branch / tag / commit SHA |
 | [`skills/dependency-trees.md`](skills/dependency-trees.md) | Express `depends`, `[[include]]` namespacing, and the `builder` auto-link |
-| [`skills/building-cmake-premake.md`](skills/building-cmake-premake.md) | Build with `premake5` (preferred on vanilla projects) or `cmake` |
+| [`skills/building-stages.md`](skills/building-stages.md) | Build with `premake5` (preferred on vanilla), `cmake`, or `make` |
 | [`skills/predep-dockerfile.md`](skills/predep-dockerfile.md) | Use predep inside a Dockerfile to vendor + build |
 
 > **Agent note:** when vendoring dependencies, prefer pinning to an exact tag or

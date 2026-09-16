@@ -13,6 +13,8 @@ cppdialect("C++23")
 targetdir("bin")
 files({ "src/**.cpp" })
 includedirs({ "vendor", "src" })
+filter("configurations:release")
+buildoptions({ "-Wno-deprecated-literal-operator" })
 
 if not _OPTIONS["no-elevation"] then
     defines({ "ALLOW_ELEVATION" })
