@@ -15,7 +15,7 @@ class Prompter;
 
 // ---- Stage type enum ----
 
-enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy, cmake };
+enum class stage_type { vendor, fetch, resource, run, docker, premake5, package, group, disabled, binary, install, uninstall, clean, copy, cmake, make };
 
 stage_type stage_from_string(const std::string &);
 std::string to_string(stage_type);
@@ -183,6 +183,26 @@ struct cmake_data : buildable_data
 {
     cmake_entry defaults;
     std::map<platform_type, platform_entry<cmake_entry>> platform;
+};
+
+// Generic Makefile build stage: for projects that only ship a `Makefile` (no
+// cmake/premake5). Variables are expressed structurally (KEY=VALUE make args,
+// no shell evaluation).
+struct make_entry
+{
+    std::string source;                    // dir containing the Makefile (default: build_context cwd)
+    std::vector<std::string> targets;      // empty = default target
+    std::map<std::string, std::string> variables; // → KEY=VALUE args (sorted, deterministic)
+    std::string installPrefix;             // → <prefixVar>=<dir>; empty = no install step
+    std::string prefixVar = "PREFIX";      // make variable name holding the install prefix
+    std::optional<bool> install = true;    // run the `install` target (requires installPrefix)
+    int jobs = 0;                          // 0 = auto (-j<nproc>), <0 = unlimited (-j)
+};
+
+struct make_data : buildable_data
+{
+    make_entry defaults;
+    std::map<platform_type, platform_entry<make_entry>> platform;
 };
 
 struct package_data : stage_data

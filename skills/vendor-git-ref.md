@@ -68,7 +68,7 @@ On re-run, predep compares the stored `.predepgit` ref to the configured `ref`:
 
 - The pinned ref is part of the build signature of any `cmake`/`premake5` stage
   that builds it. Changing `ref` invalidates the build and forces a rebuild
-  (see `building-cmake-premake.md`).
+  (see `building-stages.md`).
 - A branch ref (`main`) is *not* memoized as "changed" automatically — predep
   only compares the stored string. Use a tag or SHA for reproducible rebuilds.
 

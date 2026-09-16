@@ -12,6 +12,7 @@
 #include "action/clean_action.h"
 #include "action/copy_action.h"
 #include "action/cmake_action.h"
+#include "action/make_action.h"
 #include "logger/logger.h"
 
 resolver::resolver(
@@ -35,6 +36,7 @@ resolver::resolver(
     m_actions[stage_type::clean]     = std::make_unique<clean_action>();
     m_actions[stage_type::copy]      = std::make_unique<copy_action>();
     m_actions[stage_type::cmake]     = std::make_unique<cmake_action>();
+    m_actions[stage_type::make]      = std::make_unique<make_action>();
 }
 
 stage_desc *resolver::find(const std::string &name)

@@ -58,7 +58,7 @@ predep errors at load time.
 
 The link is build-system agnostic — `builder` can point at a `cmake` stage
 (prefer this for CMake-based libraries) or a `premake5` stage (good for
-libraries that already ship a `premake5.lua`). See `building-cmake-premake.md`.
+libraries that already ship a `premake5.lua`). See `building-stages.md`.
 
 ## Key fields on a `[[vendor]]` entry
 

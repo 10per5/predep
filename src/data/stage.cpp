@@ -16,6 +16,7 @@ stage_type stage_from_string(const std::string &s)
     if (s == "clean")     return stage_type::clean;
     if (s == "copy")      return stage_type::copy;
     if (s == "cmake")     return stage_type::cmake;
+    if (s == "make")      return stage_type::make;
     if (s == "disabled")  return stage_type::disabled;
     return stage_type::disabled;
 }
@@ -39,6 +40,7 @@ std::string to_string(stage_type t)
         case stage_type::clean:    return "clean";
         case stage_type::copy:     return "copy";
         case stage_type::cmake:    return "cmake";
+        case stage_type::make:     return "make";
     }
     return "disabled";
 }

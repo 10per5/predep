@@ -10,6 +10,7 @@
 #include "action/clean_action.h"
 #include "action/copy_action.h"
 #include "action/cmake_action.h"
+#include "action/make_action.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -277,6 +278,22 @@ static void parse_stages(
 
             sd.data = std::move(d);
         }
+        else if (sd.type == stage_type::make)
+        {
+            auto d = std::make_unique<make_data>();
+            make_action::parse(elem, *d);
+
+            auto outs = elem.get_array("outputs");
+            for (auto &out : outs)
+                d->outputs.push_back(out.as_string());
+            d->build_context = elem.get_string("build_context");
+            d->clean = elem.get_bool_flex("clean");
+            auto clean_paths = elem.get_array("clean_paths");
+            for (auto &cp : clean_paths)
+                d->clean_paths.push_back(cp.as_string());
+
+            sd.data = std::move(d);
+        }
         else if (sd.type == stage_type::disabled)
         {
             sd.data = std::make_unique<group_data>();
@@ -515,6 +532,28 @@ static void parse_stages(
                             for (auto &a : sv.get_array("configurable"))     pe.configurable.push_back(a.as_string());
                             for (auto &a : sv.get_array("installPrefixVars")) pe.installPrefixVars.push_back(a.as_string());
                             for (auto &a : sv.get_array("targets"))          pe.targets.push_back(a.as_string());
+                            pe.build_context = sv.get_string("build_context");
+                            d->platform[pt] = std::move(pe);
+                            break;
+                        }
+                        case stage_type::make:
+                        {
+                            auto *d = dynamic_cast<make_data*>(sd.data.get());
+                            if (!d) break;
+                            platform_entry<make_entry> pe;
+                            auto src = sv.get_string("source");
+                            if (!src.empty()) pe.source = src;
+                            for (auto &a : sv.get_array("targets")) pe.targets.push_back(a.as_string());
+                            auto vt = sv.get_table("variables");
+                            if (vt)
+                                vt.for_each([&](const std::string &k, const config_node &n)
+                                { pe.variables[k] = n.as_string(); });
+                            auto ip = sv.get_string("installPrefix");
+                            if (!ip.empty()) pe.installPrefix = ip;
+                            auto pvar = sv.get_string("prefixVar");
+                            if (!pvar.empty()) pe.prefixVar = pvar;
+                            if (sv.has("install")) pe.install = sv.get_bool_flex("install");
+                            if (sv.has("jobs")) pe.jobs = static_cast<int>(sv.get_int("jobs", 0));
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;
