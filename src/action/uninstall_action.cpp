@@ -229,7 +229,25 @@ bool uninstall_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             continue;
         char marker = line[0];
         auto rel = line.substr(2);
-        auto dst = (fs::path(install_dir) / rel).string();
+        
+        // Check if this is an XDG path (stored as xdg-*:// in manifest)
+        // xdg-apps is always enabled; others require PREDEP_XDG_ENABLED=1
+        bool is_xdg = rel.rfind(path::xdg_apps, 0) == 0;
+#if defined(PREDEP_XDG_ENABLED) && PREDEP_XDG_ENABLED == 1
+        is_xdg = is_xdg || rel.rfind(path::xdg_data, 0) == 0;
+        is_xdg = is_xdg || rel.rfind(path::xdg_config, 0) == 0;
+        is_xdg = is_xdg || rel.rfind(path::xdg_cache, 0) == 0;
+#endif
+        
+        std::string dst;
+        if (is_xdg)
+        {
+            dst = ctx.resolve_path(rel);
+        }
+        else
+        {
+            dst = (fs::path(install_dir) / rel).string();
+        }
 
         if (marker == 'U')
         {

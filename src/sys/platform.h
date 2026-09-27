@@ -42,4 +42,10 @@ gid_t install_group();
 // transfer is a no-op there).
 bool file_matches_ownership(const std::string &path);
 
+// XDG directory resolution (Unix only; empty string on Windows/macOS for v1)
+std::string xdg_data_home();    // $XDG_DATA_HOME or ~/.local/share
+std::string xdg_config_home();  // $XDG_CONFIG_HOME or ~/.config
+std::string xdg_cache_home();   // $XDG_CACHE_HOME or ~/.cache
+std::string xdg_apps_dir();     // $XDG_DATA_HOME/applications or ~/.local/share/applications
+
 }

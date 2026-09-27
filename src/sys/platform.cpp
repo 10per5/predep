@@ -294,4 +294,56 @@ bool file_matches_ownership(const std::string &path)
 #endif
 }
 
+// XDG directory resolution (Unix only; empty string on Windows/macOS for v1)
+std::string xdg_data_home()
+{
+#ifdef _WIN32
+    return "";
+#else
+    if (auto *env = std::getenv("XDG_DATA_HOME"))
+        return path_expanded(std::string(env));
+    if (auto *home = std::getenv("HOME"))
+        return std::string(home) + "/.local/share";
+    return "";
+#endif
+}
+
+std::string xdg_config_home()
+{
+#ifdef _WIN32
+    return "";
+#else
+    if (auto *env = std::getenv("XDG_CONFIG_HOME"))
+        return path_expanded(std::string(env));
+    if (auto *home = std::getenv("HOME"))
+        return std::string(home) + "/.config";
+    return "";
+#endif
+}
+
+std::string xdg_cache_home()
+{
+#ifdef _WIN32
+    return "";
+#else
+    if (auto *env = std::getenv("XDG_CACHE_HOME"))
+        return path_expanded(std::string(env));
+    if (auto *home = std::getenv("HOME"))
+        return std::string(home) + "/.cache";
+    return "";
+#endif
+}
+
+std::string xdg_apps_dir()
+{
+#ifdef _WIN32
+    return "";
+#else
+    auto data = xdg_data_home();
+    if (data.empty())
+        return "";
+    return data + "/applications";
+#endif
+}
+
 }

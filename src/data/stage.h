@@ -32,8 +32,10 @@ struct artifact_entry
     std::string dest;
     bool userdir = false;
     bool binary = false;
-    int mode = -1;              // -1 = unset; else octal mode (0o644, 0o755, ...)
-    bool chown_user = false;    // transfer ownership to the invoking user after install
+    int mode = -1;                   // -1 = unset; else octal mode (0o644, 0o755, ...)
+    bool chown_user = false;         // transfer ownership to the invoking user after install
+    bool desktop_database = false;   // run update-desktop-database after copy (for .desktop files)
+    std::string scheme_handler;      // scheme to register via xdg-settings/gio mime (e.g. "inb4doc")
 };
 
 struct fetch_entry
@@ -329,5 +331,26 @@ inline std::string runtime::resolve_path(const std::string &path) const
     auto p2 = result.find(path::root);
     if (p2 != std::string::npos)
         result = (fs::path(result.substr(0, p2)) / root / result.substr(p2 + path::root.size())).string();
+
+    // XDG prefixes - only resolve if enabled at compile time
+    // xdg-apps is always enabled; others require PREDEP_XDG_ENABLED=1
+    auto p3 = result.find(path::xdg_apps);
+    if (p3 != std::string::npos)
+        result = (fs::path(result.substr(0, p3)) / platform::xdg_apps_dir() / result.substr(p3 + path::xdg_apps.size())).string();
+
+#if defined(PREDEP_XDG_ENABLED) && PREDEP_XDG_ENABLED == 1
+    auto p4 = result.find(path::xdg_data);
+    if (p4 != std::string::npos)
+        result = (fs::path(result.substr(0, p4)) / platform::xdg_data_home() / result.substr(p4 + path::xdg_data.size())).string();
+
+    auto p5 = result.find(path::xdg_config);
+    if (p5 != std::string::npos)
+        result = (fs::path(result.substr(0, p5)) / platform::xdg_config_home() / result.substr(p5 + path::xdg_config.size())).string();
+
+    auto p6 = result.find(path::xdg_cache);
+    if (p6 != std::string::npos)
+        result = (fs::path(result.substr(0, p6)) / platform::xdg_cache_home() / result.substr(p6 + path::xdg_cache.size())).string();
+#endif
+
     return result;
 }
