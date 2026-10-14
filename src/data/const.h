@@ -18,10 +18,26 @@ enum class privilege { install, build };
 
 namespace path {
 
-inline const std::string root      = "root://";
-inline const std::string cache     = "cache://";
-inline const std::string libname   = "predep";
-inline const std::string manifest  = ".predep-manifest";
+inline const std::string root         = "root://";
+inline const std::string cache        = "cache://";
+
+// XDG destination prefixes - gated by PREDEP_XDG_ENABLED
+// Only xdg-apps is enabled by default (for .desktop files).
+// Define PREDEP_XDG_ENABLED=1 at compile time to enable all XDG prefixes.
+inline const std::string xdg_apps     = "xdg-apps://";
+
+#if defined(PREDEP_XDG_ENABLED) && PREDEP_XDG_ENABLED == 1
+inline const std::string xdg_data     = "xdg-data://";
+inline const std::string xdg_config   = "xdg-config://";
+inline const std::string xdg_cache    = "xdg-cache://";
+#else
+inline const std::string xdg_data     = "";
+inline const std::string xdg_config   = "";
+inline const std::string xdg_cache    = "";
+#endif
+
+inline const std::string libname      = "predep";
+inline const std::string manifest     = ".predep-manifest";
 
 enum class check_result { ok, config_error, requires_privileged };
 

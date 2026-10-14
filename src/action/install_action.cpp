@@ -198,6 +198,64 @@ static bool tree_matches_ownership(const std::string &path)
 #endif
 }
 
+// Run post-copy hooks for desktop entries (update-desktop-database, scheme handler registration).
+// Best-effort: failures are logged but don't fail the install.
+static void run_desktop_hooks(const artifact_entry &art, const std::string &dst, Logger *logger)
+{
+    // desktop_database: run update-desktop-database on the applications directory
+    if (art.desktop_database)
+    {
+        // Only run on Linux/Unix, and only if the destination is in the applications dir
+#ifndef _WIN32
+        auto apps_dir = platform::xdg_apps_dir();
+        if (!apps_dir.empty())
+        {
+            // Check if dst is under apps_dir
+            std::error_code ec;
+            auto dst_path = fs::path(dst);
+            auto apps_path = fs::path(apps_dir);
+            try {
+                auto rel = fs::relative(dst_path, apps_path, ec);
+                if (!ec && !rel.empty() && rel.string().find("..") != 0)
+                {
+                    if (logger)
+                        logger->info("  updating desktop database: " + apps_dir);
+                    // Best effort - ignore failures
+                    process::run_with_err("update-desktop-database", {apps_dir});
+                }
+            } catch (...) {
+                // Ignore filesystem errors
+            }
+        }
+#endif
+    }
+    
+    // scheme_handler: register URL scheme handler via xdg-settings and gio mime
+    if (!art.scheme_handler.empty())
+    {
+#ifndef _WIN32
+        // Extract basename from destination (e.g., inb4doc.desktop)
+        auto basename = fs::path(dst).filename().string();
+        if (!basename.empty())
+        {
+            if (logger)
+                logger->info("  registering scheme handler: " + art.scheme_handler + " -> " + basename);
+            
+            // xdg-settings set default-url-scheme-handler <scheme> <desktop-file>
+            auto res1 = process::run_with_err("xdg-settings", {"set", "default-url-scheme-handler", art.scheme_handler, basename});
+            if (res1.code != 0 && logger)
+                logger->warn("  xdg-settings failed (non-fatal): " + res1.err);
+            
+            // gio mime x-scheme-handler/<scheme> <desktop-file>
+            auto mime_type = "x-scheme-handler/" + art.scheme_handler;
+            auto res2 = process::run_with_err("gio", {"mime", mime_type, basename});
+            if (res2.code != 0 && logger)
+                logger->warn("  gio mime failed (non-fatal): " + res2.err);
+        }
+#endif
+    }
+}
+
 // Recursively compares a source directory against a destination directory.
 // Returns true when every file under src exists at the same relative path
 // under dst with identical content (size fast-path, then sha256). Extra files
@@ -248,7 +306,8 @@ static bool directories_match(const std::string &src, const std::string &dst)
 // Resolves an artifact's source and destination paths, applying the Windows
 // .exe suffix for binary artifacts. `rel` (optional) receives the destination
 // relative to the install dir, for the uninstall manifest.
-static void artifact_paths(const artifact_entry &ae, const std::string &install_dir,
+// Returns true if the destination is an XDG path (not under install_dir).
+static bool artifact_paths(const artifact_entry &ae, const std::string &install_dir,
                            runtime &ctx, std::string &src, std::string &dst, std::string *rel = nullptr)
 {
     auto s = ae.source;
@@ -259,9 +318,29 @@ static void artifact_paths(const artifact_entry &ae, const std::string &install_
         d += ".exe";
     }
     src = ctx.resolve_path(s);
-    dst = (fs::path(install_dir) / d).string();
-    if (rel)
-        *rel = d;
+    
+    // Check if destination is an XDG path (starts with xdg-*:// prefix)
+    // xdg-apps is always enabled; others require PREDEP_XDG_ENABLED=1
+    bool is_xdg = d.rfind(path::xdg_apps, 0) == 0;
+#if defined(PREDEP_XDG_ENABLED) && PREDEP_XDG_ENABLED == 1
+    is_xdg = is_xdg || d.rfind(path::xdg_data, 0) == 0;
+    is_xdg = is_xdg || d.rfind(path::xdg_config, 0) == 0;
+    is_xdg = is_xdg || d.rfind(path::xdg_cache, 0) == 0;
+#endif
+    
+    if (is_xdg)
+    {
+        dst = ctx.resolve_path(d);
+        if (rel)
+            *rel = d; // Store the original XDG path for manifest
+    }
+    else
+    {
+        dst = (fs::path(install_dir) / d).string();
+        if (rel)
+            *rel = d;
+    }
+    return is_xdg;
 }
 
 // True when the artifact is already installed with matching content and the
@@ -500,6 +579,8 @@ void install_action::parse(config_node &cfg, install_data &d)
         if (elem.get_octal_mode("chmod", ae.mode) < 0)
             ae.mode = -1;
         ae.chown_user = elem.get_bool_flex("chown_user");
+        ae.desktop_database = elem.get_bool_flex("desktop-database");
+        ae.scheme_handler = elem.get_string("scheme-handler");
         d.defaults.artifacts.push_back(ae);
     }
 
@@ -529,6 +610,8 @@ void install_action::parse(config_node &cfg, install_data &d)
             if (elem.get_octal_mode("chmod", ae.mode) < 0)
                 ae.mode = -1;
             ae.chown_user = elem.get_bool_flex("chown_user");
+            ae.desktop_database = elem.get_bool_flex("desktop-database");
+            ae.scheme_handler = elem.get_string("scheme-handler");
             pe.artifacts.push_back(ae);
         }
 
@@ -709,6 +792,9 @@ bool install_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             error = "failed to change ownership of " + dst;
             return false;
         }
+
+        // Run post-copy hooks for desktop entries (best-effort)
+        run_desktop_hooks(art, dst, ctx.logger);
     }
 
 #ifndef _WIN32
