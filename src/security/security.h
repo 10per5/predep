@@ -32,4 +32,12 @@ bool confirm_build_context(const stage_desc &sd,
                            runtime &ctx,
                            std::string &error);
 
+// True when `token` is safe to embed in a command executed through the system
+// shell (/bin/sh -c) — i.e. it cannot be parsed as shell syntax. Safe tokens
+// contain only [A-Za-z0-9._:/+=-] with no whitespace or shell metacharacters.
+// When `require_leading_dash` is true the token must also begin with '-' (used
+// for `--flag`-style arguments). Used by the premake5 stage to validate its
+// `flags`, `action`, `config`, and `project` before concatenation.
+bool is_shell_safe(const std::string &token, bool require_leading_dash = false);
+
 } // namespace security

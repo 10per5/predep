@@ -35,10 +35,42 @@ outputs = ["root://bin/myapp"]
 | `target` | — | Specific output path to strip |
 | `project` | root `project` key | Premake project name |
 | `config` | — | Build config (`release`, `debug`) |
+| `flags` | `[]` | Extra arguments appended to the generated `premake5 <action>` command (e.g. `["--tls"]`) |
 
 `premake5` is looked up on `PATH` and in `cache://bin`. Supports `[platform.*]` overrides for every field plus `build_context`.
 
 `is_resolved()` always returns false (rebuilds each run).
+
+### `flags` — security
+
+`flags` entries are concatenated into the `premake5 <action>` command, which is
+executed through the system shell (`/bin/sh -c`). For safety, a flag is accepted
+**only** when it is a single token shaped like `--word-args-like-this` — a
+leading `-` followed by `[A-Za-z0-9._:/+=-]`. Any flag containing **spaces,
+quotes, or shell metacharacters** (`; & | $ \` > < ( ) { } [ ] * ? ! \`) is
+**discarded and never evaluated**, and a warning is printed — *spaces are not
+currently allowed, by design*. Pass one option per entry (e.g.
+`["--cc=gcc", "--os=linux"]`); never embed a value containing a space.
+
+The scalar fields **`action`**, **`config`**, and **`project`** are also
+concatenated into that `sh -c` command. They can't be safely dropped, so an
+unsafe value (spaces / shell metacharacters) is **rejected and the stage fails**
+with a security error — each must be a single shell-safe word
+(`[A-Za-z0-9._:/+=-]`). This hardens the whole premake5 command (generate →
+make/msbuild → strip) against injection via manifest values.
+
+```toml
+[[stages]]
+name = "build"
+type = "premake5"
+depends = ["vendor", "pluto"]
+flags = ["--tls", "--cc=gcc"]   # optional; default []
+config = "release"
+outputs = ["root://bin/myapp"]
+
+[stages.platform.linux]
+flags = ["--os=linux", "--tls"] # platform override replaces the default list
+```
 
 ## cmake stage
 

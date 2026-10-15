@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <string>
 
-inline const std::string PREDEP_VERSION = "v0.0.2";
+inline const std::string PREDEP_VERSION = "v0.0.3";
 
 // ---- Safety levels for prompting ----
 

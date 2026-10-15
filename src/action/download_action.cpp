@@ -420,6 +420,19 @@ bool download_action::resolve_entries(
                     ctx.logger->info(type + " " + fe.name + " extracted cached");
                     continue;
                 }
+                else
+                {
+                    ctx.logger->info(fe.name + " SHA256 mismatch, re-extracting");
+                    // Wipe the previous extraction so files that only existed
+                    // in the old archive can't linger. Only safe when the dir
+                    // is dedicated to this entry; with create_directory off
+                    // the extract dir is shared with sibling entries.
+                    if (fe.create_directory)
+                        fs::remove_all(extract_dir);
+                    else
+                        ctx.logger->warn(fe.name + " extract dir is shared; "
+                            "stale files from the previous archive may remain");
+                }
             }
 
             fs::create_directories(extract_dir);
@@ -463,7 +476,6 @@ bool download_action::resolve_entries(
                 }
             }
 
-            // TODO: on sha256 mismatch, delete extract_dir before re-extracting
             {
                 std::ofstream f(csum_path);
                 if (!fe.sha256.empty())
