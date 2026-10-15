@@ -3,10 +3,45 @@
 #include "security/security.h"
 #include "sys/process.h"
 #include "sys/platform.h"
+#include <cctype>
 #include <filesystem>
 #include <iostream>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+// premake5 flags are concatenated into a command that is executed through
+// process::shell() (i.e. /bin/sh -c "<cmd>"). A flag containing spaces,
+// quotes, or shell metacharacters ( ; & | $ ` > < ( ) { } [ ] * ? ! \ ) is
+// therefore a command-injection vector. We accept ONLY single tokens shaped
+// like `--word-args-like-this[=value]`: a leading '-' followed by characters
+// from the safe set [A-Za-z0-9._:/+=-]. Anything else is discarded (never
+// evaluated) by the caller.
+bool is_safe_flag(const std::string &f)
+{
+    if (f.empty() || f.front() != '-')
+        return false;
+    for (unsigned char c : f)
+    {
+        bool ok = std::isalnum(c) || c == '-' || c == '_' || c == '.' ||
+                  c == '/' || c == ':' || c == '=' || c == '+';
+        if (!ok)
+            return false;   // whitespace or shell metacharacter
+    }
+    return true;
+}
+
+} // namespace
+
+std::vector<std::string> premake5_action::sanitize_flags(const std::vector<std::string> &flags)
+{
+    std::vector<std::string> out;
+    for (auto &f : flags)
+        if (is_safe_flag(f))
+            out.push_back(f);
+    return out;
+}
 
 void premake5_action::parse(config_node &cfg, premake5_data &d)
 {
@@ -16,6 +51,8 @@ void premake5_action::parse(config_node &cfg, premake5_data &d)
     d.defaults.target = cfg.get_string("target");
     d.defaults.project = cfg.get_string("project");
     d.defaults.config = cfg.get_string("config");
+    for (auto &f : cfg.get_array("flags"))
+        d.defaults.flags.push_back(f.as_string());
 
     auto plat = cfg.get_table("platform");
     if (!plat)
@@ -36,6 +73,8 @@ void premake5_action::parse(config_node &cfg, premake5_data &d)
         if (!proj.empty()) pe.project = proj;
         auto cfg_val = val.get_string("config");
         if (!cfg_val.empty()) pe.config = cfg_val;
+        for (auto &f : val.get_array("flags"))
+            pe.flags.push_back(f.as_string());
         pe.build_context = val.get_string("build_context");
 
         d.platform[pt] = std::move(pe);
@@ -65,6 +104,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto strip = d->defaults.strip;
     auto target = d->defaults.target;
     auto config = d->defaults.config;
+    auto flags = d->defaults.flags;
 
     auto pit = d->platform.find(ctx.platform);
     bool has_plat = pit != d->platform.end();
@@ -77,6 +117,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         if (p.strip.has_value()) strip = p.strip;
         if (!p.target.empty()) target = p.target;
         if (!p.config.empty()) config = p.config;
+        if (!p.flags.empty()) flags = p.flags;   // platform override replaces (consistent with scalars)
     }
 
     if (!security::confirm_build_context(sd, d->build_context, "", ctx, error))
@@ -89,7 +130,19 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto bin_dir = ctx.cache_dir + "/bin";
 
     // Premake5 generation step
+    // Security: premake_cmd is executed via /bin/sh -c, so any flag with spaces
+    // or shell metacharacters is a command-injection vector. Keep only single
+    // --word-args-like-this tokens; discard the rest and warn the user.
     auto premake_cmd = "premake5 " + action;
+    for (auto &f : flags)
+    {
+        if (is_safe_flag(f))
+            premake_cmd += " " + f;
+        else
+            ctx.logger->warn("flag '" + f + "' was discarded for security: premake5 flags "
+                             "must be a single --word-args-like-this token with no spaces "
+                             "or shell metacharacters. Spaces are not currently allowed.");
+    }
     ctx.logger->info(premake_cmd);
     {
         auto path_cmd = "PATH=" + bin_dir + ":$PATH " + premake_cmd;

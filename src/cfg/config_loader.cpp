@@ -431,6 +431,8 @@ static void parse_stages(
                             if (!proj.empty()) pe.project = proj;
                             auto cfg_val = sv.get_string("config");
                             if (!cfg_val.empty()) pe.config = cfg_val;
+                            for (auto &f : sv.get_array("flags"))
+                                pe.flags.push_back(f.as_string());
                             pe.build_context = sv.get_string("build_context");
                             d->platform[pt] = std::move(pe);
                             break;

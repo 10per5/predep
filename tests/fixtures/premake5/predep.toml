@@ -1,0 +1,12 @@
+project = "premake5-flags-fixture"
+
+[[stages]]
+name = "build"
+type = "premake5"
+action = "gmake"
+config = "release"
+flags = ["--tls", "--cc=gcc"]
+outputs = ["root://bin/myapp"]
+
+[stages.platform.linux]
+flags = ["--os=linux", "--tls"]

@@ -88,6 +88,7 @@ struct premake5_entry
     std::string target;
     std::string project;
     std::string config;
+    std::vector<std::string> flags;   // extra args appended to `premake5 <action>`
 };
 
 // ---- Platform entry template (adds build_context override to any entry type) ----

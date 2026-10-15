@@ -27,6 +27,17 @@ outputs = ["root://bin/predep"]
 | `target` | — | Specific output path to strip |
 | `project` | — | Project name (from `project` root key) |
 | `config` | — | Build config (e.g., `release`, `debug`) |
+| `flags` | `[]` | Extra arguments appended to the generated `premake5 <action>` command (e.g. `["--tls"]`) |
+
+**Security — `flags` are shell-evaluated.** Each `flags` entry is concatenated
+into the `premake5 <action>` command, which runs via the system shell
+(`/bin/sh -c`). For safety, a flag is accepted **only** when it is a single
+token shaped like `--word-args-like-this` (a leading `-` followed by
+`[A-Za-z0-9._:/+=-]`). Any flag containing **spaces, quotes, or shell
+metacharacters** (`; & | $ \` > < ( ) { } [ ] * ? ! \`) is **discarded** and a
+warning is printed — spaces are not currently allowed, by design. Use one
+entry per option (e.g. `["--cc=gcc", "--os=linux"]`), never embed values with
+spaces.
 
 Supports platform overrides for all fields plus `build_context`.
 
