@@ -5,6 +5,7 @@
 #include "logger/console.h"
 #include "logger/prompter.h"
 #include "sys/platform.h"
+#include <cctype>
 #include <filesystem>
 #include <set>
 
@@ -45,6 +46,22 @@ bool security::check_root_sudo(const runtime &ctx, std::string &error)
 
     return false;
 #endif
+}
+
+bool security::is_shell_safe(const std::string &token, bool require_leading_dash)
+{
+    if (token.empty())
+        return false;
+    if (require_leading_dash && token.front() != '-')
+        return false;
+    for (unsigned char c : token)
+    {
+        bool ok = std::isalnum(c) || c == '-' || c == '_' || c == '.' ||
+                  c == '/' || c == ':' || c == '=' || c == '+';
+        if (!ok)
+            return false;   // whitespace or shell metacharacter
+    }
+    return true;
 }
 
 bool security::is_in_root(const runtime &ctx, const std::string &resolved)

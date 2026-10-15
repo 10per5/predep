@@ -13,6 +13,7 @@
 #include "action/premake5_action.h"
 #include "cfg/config.h"
 #include "data/stage.h"
+#include "security/security.h"
 
 #include <algorithm>
 #include <string>
@@ -81,4 +82,25 @@ TEST_CASE("premake5_action::sanitize_flags keeps only shell-safe --word tokens")
     CHECK(out[0] == "--tls");
     CHECK(out[1] == "--cc=gcc");
     CHECK(out[2] == "--to=build/linux");
+}
+
+TEST_CASE("security::is_shell_safe rejects shell-unsafe scalars")
+{
+    // action / config / project are concatenated into the `sh -c` command, so
+    // they must each be a single shell-safe word. The shared `security` util is
+    // the single source of truth for both flag and scalar validation.
+    CHECK(security::is_shell_safe("gmake"));      // ok
+    CHECK(security::is_shell_safe("vs2022"));     // ok
+    CHECK(security::is_shell_safe("release"));    // ok
+    CHECK(security::is_shell_safe("my-app"));     // ok (hyphen)
+
+    CHECK_FALSE(security::is_shell_safe(""));          // empty
+    CHECK_FALSE(security::is_shell_safe("gmake; rm")); // command separator
+    CHECK_FALSE(security::is_shell_safe("rel ease"));  // space
+    CHECK_FALSE(security::is_shell_safe("c$(id)"));    // substitution
+    CHECK_FALSE(security::is_shell_safe("a>b"));       // redirection
+
+    // The same util, with require_leading_dash, is what sanitize_flags uses.
+    CHECK(security::is_shell_safe("--cc=gcc", /*require_leading_dash=*/true));
+    CHECK_FALSE(security::is_shell_safe("gmake", /*require_leading_dash=*/true)); // no dash
 }

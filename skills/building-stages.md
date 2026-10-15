@@ -52,6 +52,13 @@ quotes, or shell metacharacters** (`; & | $ \` > < ( ) { } [ ] * ? ! \`) is
 currently allowed, by design*. Pass one option per entry (e.g.
 `["--cc=gcc", "--os=linux"]`); never embed a value containing a space.
 
+The scalar fields **`action`**, **`config`**, and **`project`** are also
+concatenated into that `sh -c` command. They can't be safely dropped, so an
+unsafe value (spaces / shell metacharacters) is **rejected and the stage fails**
+with a security error — each must be a single shell-safe word
+(`[A-Za-z0-9._:/+=-]`). This hardens the whole premake5 command (generate →
+make/msbuild → strip) against injection via manifest values.
+
 ```toml
 [[stages]]
 name = "build"

@@ -39,6 +39,13 @@ warning is printed — spaces are not currently allowed, by design. Use one
 entry per option (e.g. `["--cc=gcc", "--os=linux"]`), never embed values with
 spaces.
 
+The scalar fields **`action`**, **`config`**, and **`project`** are also
+concatenated into that `sh -c` command. Unlike `flags` they cannot be safely
+"dropped", so an unsafe value (spaces / shell metacharacters) is **rejected and
+the stage fails** with a security error — these must each be a single
+shell-safe word (`[A-Za-z0-9._:/+=-]`). This hardens the whole premake5 command
+(generate → make/msbuild → strip) against injection via manifest values.
+
 Supports platform overrides for all fields plus `build_context`.
 
 ### When to use

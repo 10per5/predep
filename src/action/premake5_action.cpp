@@ -9,36 +9,17 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-// premake5 flags are concatenated into a command that is executed through
-// process::shell() (i.e. /bin/sh -c "<cmd>"). A flag containing spaces,
-// quotes, or shell metacharacters ( ; & | $ ` > < ( ) { } [ ] * ? ! \ ) is
-// therefore a command-injection vector. We accept ONLY single tokens shaped
-// like `--word-args-like-this[=value]`: a leading '-' followed by characters
-// from the safe set [A-Za-z0-9._:/+=-]. Anything else is discarded (never
-// evaluated) by the caller.
-bool is_safe_flag(const std::string &f)
-{
-    if (f.empty() || f.front() != '-')
-        return false;
-    for (unsigned char c : f)
-    {
-        bool ok = std::isalnum(c) || c == '-' || c == '_' || c == '.' ||
-                  c == '/' || c == ':' || c == '=' || c == '+';
-        if (!ok)
-            return false;   // whitespace or shell metacharacter
-    }
-    return true;
-}
-
-} // namespace
+// premake5 `flags`, `action`, `config`, and `project` are concatenated into a
+// command executed via /bin/sh -c (process::shell()). The shell-safety check
+// for those tokens lives in the shared `security` module (security::is_shell_safe)
+// so the rule is defined in exactly one place and reused by both the flag path
+// and the scalar path below.
 
 std::vector<std::string> premake5_action::sanitize_flags(const std::vector<std::string> &flags)
 {
     std::vector<std::string> out;
     for (auto &f : flags)
-        if (is_safe_flag(f))
+        if (security::is_shell_safe(f, /*require_leading_dash=*/true))
             out.push_back(f);
     return out;
 }
@@ -120,6 +101,15 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
         if (!p.flags.empty()) flags = p.flags;   // platform override replaces (consistent with scalars)
     }
 
+    // Security: `action` is concatenated into a `sh -c` command. Reject any
+    // value containing spaces or shell metacharacters before evaluation.
+    if (!security::is_shell_safe(action))
+    {
+        error = "premake5 action '" + action + "' rejected for security: the action must be a "
+                "single shell-safe word (no spaces or shell metacharacters).";
+        return false;
+    }
+
     if (!security::confirm_build_context(sd, d->build_context, "", ctx, error))
         return false;
 
@@ -136,7 +126,7 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
     auto premake_cmd = "premake5 " + action;
     for (auto &f : flags)
     {
-        if (is_safe_flag(f))
+        if (security::is_shell_safe(f, /*require_leading_dash=*/true))
             premake_cmd += " " + f;
         else
             ctx.logger->warn("flag '" + f + "' was discarded for security: premake5 flags "
@@ -158,12 +148,26 @@ bool premake5_action::resolve(stage_desc &sd, runtime &ctx, std::string &error)
             std::cerr << res.err << "\n";
     }
 
+    // Security: `config` is concatenated into the make/msbuild `sh -c` command.
+    if (!config.empty() && !security::is_shell_safe(config))
+    {
+        error = "premake5 config '" + config + "' rejected for security: the build config must be "
+                "a single shell-safe word (no spaces or shell metacharacters).";
+        return false;
+    }
+
     // Make step (msbuild on Windows, make elsewhere)
     if (make.value_or(false))
     {
         std::string build_cmd;
         if (ctx.platform == platform_type::windows && !project.empty())
         {
+            if (!security::is_shell_safe(project))
+            {
+                error = "premake5 project '" + project + "' rejected for security: the project "
+                        "name must be a single shell-safe word (no spaces or shell metacharacters).";
+                return false;
+            }
             build_cmd = "msbuild " + project + ".sln";
             if (!config.empty())
                 build_cmd += " /p:Configuration=" + config;
